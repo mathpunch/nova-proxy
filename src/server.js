@@ -86,9 +86,9 @@ fastify.server.on("listening", () => {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
-function shutdown() {
+async function shutdown() {
   console.log("Shutting down server...");
-  fastify.close();
+  await fastify.close();
   process.exit(0);
 }
 

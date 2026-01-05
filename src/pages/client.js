@@ -1,5 +1,8 @@
 "use strict";
 
+// Configuration constants
+const TRANSPORT_PATH = "/libcurl/index.mjs";
+
 // List of hostnames that are allowed to run service workers on http://
 const swAllowedHostnames = ["localhost", "127.0.0.1"];
 
@@ -72,8 +75,8 @@ async function loadProxiedUrl(url) {
     "/wisp/";
 
   const currentTransport = await connection.getTransport();
-  if (currentTransport !== "/libcurl/index.mjs") {
-    await connection.setTransport("/libcurl/index.mjs", [{ websocket: wispUrl }]);
+  if (currentTransport !== TRANSPORT_PATH) {
+    await connection.setTransport(TRANSPORT_PATH, [{ websocket: wispUrl }]);
   }
 
   const container = document.getElementById("container");
@@ -198,10 +201,10 @@ document.addEventListener("DOMContentLoaded", () => {
     urlInput.value = "";
     currentFrame = null;
 
-    // Reset iframe
+    // Remove and reset the iframe for a cleaner state
     const iframe = document.getElementById("proxy-frame");
     if (iframe) {
-      iframe.src = "about:blank";
+      iframe.remove();
     }
   };
 });
