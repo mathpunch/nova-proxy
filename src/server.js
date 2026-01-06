@@ -8,6 +8,7 @@ import fastifyStatic from "@fastify/static";
 
 import { scramjetPath } from "@mercuryworkshop/scramjet/path";
 import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
+import { uvPath } from "@titaniumnetwork-dev/ultraviolet";
 
 const publicPath = fileURLToPath(new URL("./pages/", import.meta.url));
 
@@ -73,6 +74,13 @@ fastify.register(fastifyStatic, {
 fastify.register(fastifyStatic, {
   root: join(libcurlPath, "dist"),
   prefix: "/libcurl/",
+  decorateReply: false,
+});
+
+// Serve Ultraviolet files
+fastify.register(fastifyStatic, {
+  root: uvPath,
+  prefix: "/uv/",
   decorateReply: false,
 });
 
