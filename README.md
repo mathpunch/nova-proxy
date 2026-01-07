@@ -1,3 +1,4 @@
-#Nova Framework
+# Nova Framework
 
-A basic, primitive web proxy useing scramjet and complex backend systems.
+A basic, primitive web proxy useing Scramjet and Ultravilot prioratizeing stability, embedability, utility, and functionality.
+
