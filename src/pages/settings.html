@@ -1,1 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Settings</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, Cantarell, sans-serif;
+        background: white;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        padding: 1rem 2rem;
+        border-bottom: 1px solid #e0e0e0;
+      }
+      .back-btn {
+        background: white;
+        border: 2px solid #e0e0e0;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        cursor: pointer;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: transform 0.2s;
+        text-decoration: none;
+        margin-right: 1rem;
+      }
+      .back-btn:hover {
+        transform: scale(1.1);
+        background: #f5f5f5;
+      }
+      .back-btn svg {
+        width: 20px;
+        height: 20px;
+        stroke: black;
+      }
+      .header h1 {
+        color: black;
+        font-size: 1.5rem;
+        font-weight: 700;
+      }
+      .container {
+        flex: 1;
+        padding: 2rem;
+        max-width: 600px;
+        margin: 0 auto;
+        width: 100%;
+      }
+      .settings-section {
+        margin-bottom: 2rem;
+      }
+      .settings-section h2 {
+        color: black;
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid #e0e0e0;
+      }
+      .setting-item {
+        margin-bottom: 1.5rem;
+      }
+      .setting-item label {
+        display: block;
+        color: black;
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+      }
+      .setting-item .description {
+        color: rgba(0, 0, 0, 0.6);
+        font-size: 0.85rem;
+        margin-bottom: 0.5rem;
+      }
+      .setting-item input[type="text"] {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        font-size: 1rem;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+      .setting-item input[type="text"]:focus {
+        border-color: #000;
+      }
+      .radio-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      .radio-option {
+        display: flex;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .radio-option:hover {
+        background: #f5f5f5;
+      }
+      .radio-option.selected {
+        border-color: #000;
+        background: #f9f9f9;
+      }
+      .radio-option input {
+        display: none;
+      }
+      .radio-option .radio-circle {
+        display: none;
+      }
+      .radio-option .radio-label {
+        flex: 1;
+      }
+      .radio-option .radio-label strong {
+        display: block;
+        color: black;
+      }
+      .radio-option .radio-label span {
+        color: rgba(0, 0, 0, 0.6);
+        font-size: 0.85rem;
+      }
+      .save-btn {
+        background: black;
+        color: white;
+        border: none;
+        padding: 0.75rem 2rem;
+        border-radius: 8px;
+        font-size: 1rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        margin-top: 1rem;
+      }
+      .save-btn:hover {
+        background: #333;
+        transform: translateY(-1px);
+      }
+      .save-message {
+        display: none;
+        color: #28a745;
+        font-weight: 500;
+        margin-top: 1rem;
+      }
+      .save-message.show {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <a href="/" class="back-btn" title="Back to Home">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="icon icon-tabler icon-tabler-arrow-left"
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          stroke-width="2"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+          <path d="M5 12l14 0" />
+          <path d="M5 12l6 6" />
+          <path d="M5 12l6 -6" />
+        </svg>
+      </a>
+      <h1>Settings</h1>
+    </div>
+    <div class="container">
+      <div class="settings-section">
+        <h2>Connection</h2>
+        <div class="setting-item">
+          <label for="wisp-server">Wisp Server URL</label>
+          <p class="description">
+            Enter a custom Wisp server URL. Leave empty to use the default server.
+          </p>
+          <input
+            type="text"
+            id="wisp-server"
+            placeholder="wss://example.com/wisp/"
+          />
+        </div>
+      </div>
+      <div class="settings-section">
+        <h2>Proxy Engine</h2>
+        <div class="setting-item">
+          <p class="description">
+            Choose which proxy engine to use. Scramjet is recommended for better compatibility.
+          </p>
+          <div class="radio-group">
+            <label class="radio-option selected" data-value="scramjet">
+              <input type="radio" name="proxy-engine" value="scramjet" checked />
+              <div class="radio-circle"></div>
+              <div class="radio-label">
+                <strong>Scramjet</strong>
+                <span>Modern and fast proxy engine (recommended for modern, advanced sites)</span>
+              </div>
+            </label>
+            <label class="radio-option" data-value="ultraviolet">
+              <input type="radio" name="proxy-engine" value="ultraviolet" />
+              <div class="radio-circle"></div>
+              <div class="radio-label">
+                <strong>Ultraviolet</strong>
+                <span>Classic proxy engine with broad compatibility (works best for stagnate, basic sites and browsing)</span>
+              </div>
+            </label>
+          </div>
+        </div>
+      </div>
+      <button class="save-btn" onclick="saveSettings()">Save Settings</button>
+      <p class="save-message" id="save-message">Settings Saved</p>
+    </div>
+    <script>
+      // Load saved settings
+      document.addEventListener("DOMContentLoaded", function () {
+        const wispServer = localStorage.getItem("nova-wisp-server") || "";
+        const proxyEngine = localStorage.getItem("nova-proxy-engine") || "scramjet";
 
+        document.getElementById("wisp-server").value = wispServer;
+
+        // Update radio selection
+        document.querySelectorAll(".radio-option").forEach((option) => {
+          option.classList.remove("selected");
+          if (option.dataset.value === proxyEngine) {
+            option.classList.add("selected");
+            option.querySelector("input").checked = true;
+          }
+        });
+      });
+
+      // Handle radio button clicks
+      document.querySelectorAll(".radio-option").forEach((option) => {
+        option.addEventListener("click", function () {
+          document.querySelectorAll(".radio-option").forEach((opt) => {
+            opt.classList.remove("selected");
+            opt.querySelector("input").checked = false;
+          });
+          this.classList.add("selected");
+          this.querySelector("input").checked = true;
+        });
+      });
+
+      function saveSettings() {
+        const wispServer = document.getElementById("wisp-server").value.trim();
+        const checkedRadio = document.querySelector(
+          'input[name="proxy-engine"]:checked'
+        );
+        const proxyEngine = checkedRadio ? checkedRadio.value : "scramjet";
+
+        localStorage.setItem("nova-wisp-server", wispServer);
+        localStorage.setItem("nova-proxy-engine", proxyEngine);
+
+        const message = document.getElementById("save-message");
+        message.classList.add("show");
+        setTimeout(() => {
+          message.classList.remove("show");
+        }, 2000);
+      }
+    </script>
+  </body>
+</html>
