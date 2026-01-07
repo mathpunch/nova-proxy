@@ -1,7 +1,8 @@
 "use strict";
 
 // Configuration constants
-const TRANSPORT_PATH = "/libcurl/index.mjs";
+// Use epoxy transport v2.1.28 for better SharedWorker compatibility and proper headers handling
+const TRANSPORT_PATH = "/epoxy/index.mjs";
 
 // List of hostnames that are allowed to run service workers on http://
 const swAllowedHostnames = ["localhost", "127.0.0.1"];
@@ -134,12 +135,12 @@ async function loadProxiedUrlScramjet(url) {
     throw err;
   }
 
-  // Set up libcurl transport with Wisp
+  // Set up epoxy transport with Wisp
   const wispUrl = getWispUrl();
 
   const currentTransport = await connection.getTransport();
   if (currentTransport !== TRANSPORT_PATH) {
-    await connection.setTransport(TRANSPORT_PATH, [{ websocket: wispUrl }]);
+    await connection.setTransport(TRANSPORT_PATH, [{ wisp: wispUrl }]);
   }
 
   const container = document.getElementById("container");
@@ -177,11 +178,11 @@ async function loadProxiedUrlUltraviolet(url) {
     throw new Error("Ultraviolet configuration not available");
   }
 
-  // Set up libcurl transport with Wisp for bare-mux
+  // Set up epoxy transport with Wisp for bare-mux
   const wispUrl = getWispUrl();
 
   // Always set transport to ensure it's configured correctly
-  await connection.setTransport(TRANSPORT_PATH, [{ websocket: wispUrl }]);
+  await connection.setTransport(TRANSPORT_PATH, [{ wisp: wispUrl }]);
 
   try {
     await registerUltravioletSW();
