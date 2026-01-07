@@ -2,6 +2,11 @@
 
 A basic, primitive web proxy useing Scramjet and Ultravilot prioratizeing stability, embedability, utility, and functionality.
 
+## Deploy
+
+> [!IMPORTANT]
+> Nova Sadley cannot run on static hosting sites
+
 ## Setup
 
 ```
@@ -18,3 +23,14 @@ cd novaproxy
 npm i
 npm dev
 ```
+## Tech Stack
+
+- Npm (Js build manager)
+- Wisp.js (wisp server)
+- Scramjet (experamental web proxy)
+- Ultravilot (legacy web proxy)
+- Libcurl (wss and ws transport)
+- Epoxy (wss and ws transport)
+- Fastify (http server)
+
+## Site Support
