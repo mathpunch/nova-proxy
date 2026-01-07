@@ -59,9 +59,32 @@ async function registerUltravioletSW() {
     throw new Error("Ultraviolet configuration not loaded. Please refresh the page.");
   }
   
-  await navigator.serviceWorker.register("/uv-sw.js", {
+  // Register the UV service worker with the service prefix scope
+  const registration = await navigator.serviceWorker.register("/uv-sw.js", {
     scope: __uv$config.prefix,
   });
+  
+  // Wait for the service worker to be active
+  if (registration.active) {
+    return;
+  }
+  
+  // If the service worker is installing or waiting, wait for it to activate
+  if (registration.installing || registration.waiting) {
+    const sw = registration.installing || registration.waiting;
+    await new Promise((resolve) => {
+      sw.addEventListener("statechange", function handler() {
+        if (sw.state === "activated") {
+          sw.removeEventListener("statechange", handler);
+          resolve();
+        }
+      });
+      // If already activated, resolve immediately
+      if (sw.state === "activated") {
+        resolve();
+      }
+    });
+  }
 }
 
 // Search helper - converts input to URL or search query
@@ -154,6 +177,12 @@ async function loadProxiedUrlUltraviolet(url) {
     throw new Error("Ultraviolet configuration not available");
   }
 
+  // Set up libcurl transport with Wisp for bare-mux
+  const wispUrl = getWispUrl();
+
+  // Always set transport to ensure it's configured correctly
+  await connection.setTransport(TRANSPORT_PATH, [{ websocket: wispUrl }]);
+
   try {
     await registerUltravioletSW();
   } catch (err) {
@@ -162,13 +191,8 @@ async function loadProxiedUrlUltraviolet(url) {
     throw err;
   }
 
-  // Set up libcurl transport with Wisp for bare-mux
-  const wispUrl = getWispUrl();
-
-  const currentTransport = await connection.getTransport();
-  if (currentTransport !== TRANSPORT_PATH) {
-    await connection.setTransport(TRANSPORT_PATH, [{ websocket: wispUrl }]);
-  }
+  // Wait a moment to ensure the service worker is ready
+  await new Promise(resolve => setTimeout(resolve, 100));
 
   const container = document.getElementById("container");
   let iframe = document.getElementById("proxy-frame");
