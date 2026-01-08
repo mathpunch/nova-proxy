@@ -11,7 +11,7 @@ A basic, primitive web proxy useing Scramjet and Ultravilot prioratizeing stabil
 
 ```
 git clone https://github.com/sriail/nova-proxy
-cd novaproxy
+cd nova-proxy
 npm i
 npm start
 ```
@@ -19,7 +19,7 @@ or use npm dev for a dev enviroment (optimal for building and testing components
 
 ```
 git clone https://github.com/sriail/nova-proxy
-cd novaproxy
+cd nova-proxy
 npm i
 npm dev
 ```
