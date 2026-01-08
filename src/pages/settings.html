@@ -160,6 +160,37 @@
       .save-message.show {
         display: block;
       }
+      .checkbox-option {
+        display: flex;
+        align-items: flex-start;
+        padding: 0.75rem 1rem;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+        gap: 0.75rem;
+      }
+      .checkbox-option:hover {
+        background: #f5f5f5;
+      }
+      .checkbox-option input[type="checkbox"] {
+        width: 20px;
+        height: 20px;
+        margin-top: 2px;
+        cursor: pointer;
+        accent-color: black;
+      }
+      .checkbox-option .checkbox-label {
+        flex: 1;
+      }
+      .checkbox-option .checkbox-label strong {
+        display: block;
+        color: black;
+      }
+      .checkbox-option .checkbox-label span {
+        color: rgba(0, 0, 0, 0.6);
+        font-size: 0.85rem;
+      }
     </style>
   </head>
   <body>
@@ -200,6 +231,18 @@
         </div>
       </div>
       <div class="settings-section">
+        <h2>Privacy</h2>
+        <div class="setting-item">
+          <label class="checkbox-option">
+            <input type="checkbox" id="ad-block" />
+            <span class="checkbox-label">
+              <strong>Block Ads</strong>
+              <span>Block advertisements and tracking scripts for a cleaner browsing experience</span>
+            </span>
+          </label>
+        </div>
+      </div>
+      <div class="settings-section">
         <h2>Proxy Engine</h2>
         <div class="setting-item">
           <p class="description">
@@ -233,8 +276,10 @@
       document.addEventListener("DOMContentLoaded", function () {
         const wispServer = localStorage.getItem("nova-wisp-server") || "";
         const proxyEngine = localStorage.getItem("nova-proxy-engine") || "scramjet";
+        const adBlock = localStorage.getItem("nova-ad-block") === "true";
 
         document.getElementById("wisp-server").value = wispServer;
+        document.getElementById("ad-block").checked = adBlock;
 
         // Update radio selection
         document.querySelectorAll(".radio-option").forEach((option) => {
@@ -264,9 +309,11 @@
           'input[name="proxy-engine"]:checked'
         );
         const proxyEngine = checkedRadio ? checkedRadio.value : "scramjet";
+        const adBlock = document.getElementById("ad-block").checked;
 
         localStorage.setItem("nova-wisp-server", wispServer);
         localStorage.setItem("nova-proxy-engine", proxyEngine);
+        localStorage.setItem("nova-ad-block", adBlock.toString());
 
         const message = document.getElementById("save-message");
         message.classList.add("show");

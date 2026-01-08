@@ -12,6 +12,7 @@ function getSettings() {
   return {
     wispServer: localStorage.getItem("nova-wisp-server") || "",
     proxyEngine: localStorage.getItem("nova-proxy-engine") || "scramjet",
+    adBlock: localStorage.getItem("nova-ad-block") === "true",
   };
 }
 
@@ -269,6 +270,143 @@ function setupCookieRewriter() {
   }
 }
 
+// Common ad-serving domains to block
+const AD_DOMAINS = [
+  "doubleclick.net",
+  "googlesyndication.com",
+  "googleadservices.com",
+  "google-analytics.com",
+  "googletagmanager.com",
+  "facebook.net",
+  "fbcdn.net",
+  "adnxs.com",
+  "adsrvr.org",
+  "advertising.com",
+  "adroll.com",
+  "taboola.com",
+  "outbrain.com",
+  "criteo.com",
+  "criteo.net",
+  "pubmatic.com",
+  "rubiconproject.com",
+  "openx.net",
+  "casalemedia.com",
+  "scorecardresearch.com",
+  "quantserve.com",
+  "bluekai.com",
+  "exelator.com",
+  "turn.com",
+  "mathtag.com",
+  "serving-sys.com",
+  "2mdn.net",
+  "moatads.com",
+  "adzerk.net",
+  "adtechus.com",
+  "amazon-adsystem.com"
+];
+
+// Check if URL is from an ad domain
+function isAdUrl(url) {
+  try {
+    const urlObj = new URL(url);
+    const hostname = urlObj.hostname.toLowerCase();
+    return AD_DOMAINS.some(domain => 
+      hostname === domain || hostname.endsWith("." + domain)
+    );
+  } catch (e) {
+    return false;
+  }
+}
+
+// Ad blocking CSS to hide common ad elements
+const AD_BLOCK_CSS = `
+  [class*="ad-"], [class*="Ad-"], [class*="AD-"],
+  [class*="-ad"], [class*="-Ad"], [class*="-AD"],
+  [class*="_ad"], [class*="_Ad"], [class*="_AD"],
+  [id*="ad-"], [id*="Ad-"], [id*="AD-"],
+  [id*="-ad"], [id*="-Ad"], [id*="-AD"],
+  [id*="_ad"], [id*="_Ad"], [id*="_AD"],
+  [class*="advertisement"], [id*="advertisement"],
+  [class*="sponsored"], [id*="sponsored"],
+  [data-ad], [data-ads], [data-ad-slot],
+  iframe[src*="doubleclick"],
+  iframe[src*="googlesyndication"],
+  iframe[src*="googleads"],
+  .adsbygoogle,
+  ins.adsbygoogle {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+  }
+`;
+
+// Inject ad blocking CSS into iframe
+function injectAdBlockCSS(iframe) {
+  try {
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    const style = iframeDoc.createElement("style");
+    style.textContent = AD_BLOCK_CSS;
+    style.id = "nova-ad-block-style";
+    iframeDoc.head.appendChild(style);
+  } catch (e) {
+    // Cross-origin iframe, cannot inject directly
+    console.log("Could not inject ad block CSS (cross-origin)");
+  }
+}
+
+// Setup ad blocking for fetch requests
+function setupAdBlocker() {
+  const settings = getSettings();
+  if (!settings.adBlock) return;
+
+  const originalFetch = window.fetch;
+  window.fetch = function(input, init) {
+    // Handle string, URL object, or Request object
+    const url = typeof input === "string" ? input : (input?.url || input?.toString?.() || String(input));
+    if (isAdUrl(url)) {
+      console.log("Blocked ad request:", url);
+      return Promise.reject(new Error("Blocked by ad blocker"));
+    }
+    return originalFetch.call(window, input, init);
+  };
+
+  const originalXhrOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url) {
+    if (isAdUrl(url)) {
+      console.log("Blocked ad XHR:", url);
+      this._blocked = true;
+    }
+    return originalXhrOpen.apply(this, arguments);
+  };
+
+  const originalXhrSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function() {
+    if (this._blocked) {
+      // Simulate a network error for blocked requests
+      const self = this;
+      setTimeout(function() {
+        Object.defineProperty(self, "status", { value: 0 });
+        Object.defineProperty(self, "readyState", { value: 4 });
+        if (typeof self.onerror === "function") {
+          self.onerror(new Error("Blocked by ad blocker"));
+        }
+      }, 0);
+      return;
+    }
+    return originalXhrSend.apply(this, arguments);
+  };
+
+  // Add CSS to hide ad elements on the main page (prevent duplicate injection)
+  if (!document.getElementById("nova-ad-block-style")) {
+    const style = document.createElement("style");
+    style.textContent = AD_BLOCK_CSS;
+    style.id = "nova-ad-block-style";
+    document.head.appendChild(style);
+  }
+}
+
 // Window.open injection - redirect new windows to main iframe
 function setupWindowOpenInjection() {
   const originalOpen = window.open;
@@ -310,6 +448,7 @@ function setupWindowOpenInjection() {
 document.addEventListener("DOMContentLoaded", () => {
   setupCookieRewriter();
   setupWindowOpenInjection();
+  setupAdBlocker();
 
   const urlInput = document.getElementById("url-input");
 
