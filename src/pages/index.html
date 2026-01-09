@@ -332,6 +332,91 @@
       .settings-btn {
         display: none;
       }
+      /* Default Proxy Selection Popup */
+      .proxy-popup {
+        display: none;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: var(--bg-secondary);
+        border-top: 1px solid var(--border-color);
+        padding: 1rem 1.5rem;
+        z-index: 2000;
+        box-shadow: 0 -4px 20px var(--shadow-color);
+        animation: slideUp 0.3s ease-out;
+      }
+      .proxy-popup.show {
+        display: block;
+      }
+      @keyframes slideUp {
+        from {
+          transform: translateY(100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+      .proxy-popup-content {
+        max-width: 600px;
+        margin: 0 auto;
+      }
+      .proxy-popup h3 {
+        color: var(--text-color);
+        margin: 0 0 0.5rem 0;
+        font-size: 1.1rem;
+      }
+      .proxy-popup p {
+        color: var(--text-secondary);
+        margin: 0 0 1rem 0;
+        font-size: 0.9rem;
+      }
+      .proxy-popup-options {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+      }
+      .proxy-option-btn {
+        flex: 1;
+        min-width: 140px;
+        padding: 0.75rem 1rem;
+        border: 2px solid var(--border-color);
+        border-radius: 8px;
+        background: var(--bg-color);
+        color: var(--text-color);
+        cursor: pointer;
+        transition: all 0.2s;
+        text-align: center;
+      }
+      .proxy-option-btn:hover {
+        background: var(--hover-bg);
+        border-color: var(--text-color);
+      }
+      .proxy-option-btn strong {
+        display: block;
+        margin-bottom: 0.25rem;
+      }
+      .proxy-option-btn span {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+      }
+      .proxy-popup-close {
+        position: absolute;
+        top: 0.75rem;
+        right: 1rem;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 0.25rem;
+        color: var(--text-secondary);
+        font-size: 1.25rem;
+        line-height: 1;
+      }
+      .proxy-popup-close:hover {
+        color: var(--text-color);
+      }
     </style>
   </head>
   <body>
@@ -558,6 +643,24 @@
         </button>
       </div>
     </div>
+    <!-- Default Proxy Selection Popup -->
+    <div class="proxy-popup" id="proxy-popup">
+      <button class="proxy-popup-close" onclick="closeProxyPopup()" title="Close">&times;</button>
+      <div class="proxy-popup-content">
+        <h3>Choose Your Default Proxy Engine</h3>
+        <p>Select which proxy engine to use by default. You can change this later in Settings.</p>
+        <div class="proxy-popup-options">
+          <button class="proxy-option-btn" onclick="selectDefaultProxy('scramjet')">
+            <strong>Scramjet</strong>
+            <span>Modern &amp; fast (recommended)</span>
+          </button>
+          <button class="proxy-option-btn" onclick="selectDefaultProxy('ultraviolet')">
+            <strong>Ultraviolet</strong>
+            <span>Classic &amp; compatible</span>
+          </button>
+        </div>
+      </div>
+    </div>
     <!-- Client script handles all proxy logic -->
     <script src="/client.js"></script>
     <script>
@@ -716,6 +819,37 @@
             applyTheme();
           }
         });
+      }
+
+      // Default Proxy Selection Popup
+      const PROXY_POPUP_SHOWN_KEY = 'nova-proxy-popup-shown';
+      
+      function showProxyPopup() {
+        const popup = document.getElementById('proxy-popup');
+        if (popup) {
+          popup.classList.add('show');
+        }
+      }
+      
+      function closeProxyPopup() {
+        const popup = document.getElementById('proxy-popup');
+        if (popup) {
+          popup.classList.remove('show');
+        }
+        // Mark as shown so it doesn't appear again
+        localStorage.setItem(PROXY_POPUP_SHOWN_KEY, 'true');
+      }
+      
+      function selectDefaultProxy(engine) {
+        // Save the selection
+        localStorage.setItem('nova-proxy-engine', engine);
+        // Close the popup
+        closeProxyPopup();
+      }
+      
+      // Show popup on first visit (after a short delay for better UX)
+      if (!localStorage.getItem(PROXY_POPUP_SHOWN_KEY)) {
+        setTimeout(showProxyPopup, 500);
       }
     </script>
   </body>
