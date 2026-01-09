@@ -147,11 +147,14 @@ async function loadProxiedUrlScramjet(url) {
   const container = document.getElementById("container");
   const existingIframe = document.getElementById("proxy-frame");
 
+  // Get the nav bar height from CSS variable
+  const navBarHeight = getComputedStyle(document.documentElement).getPropertyValue('--nav-bar-height') || '49px';
+
   // Create scramjet frame
   const frame = scramjet.createFrame();
   frame.frame.id = "proxy-frame";
   frame.frame.style.width = "100%";
-  frame.frame.style.height = "calc(100vh - 49px)";
+  frame.frame.style.height = `calc(100vh - ${navBarHeight})`;
   frame.frame.style.border = "none";
 
   // Store reference
@@ -201,12 +204,15 @@ async function loadProxiedUrlUltraviolet(url) {
   const container = document.getElementById("container");
   let iframe = document.getElementById("proxy-frame");
 
+  // Get the nav bar height from CSS variable
+  const navBarHeight = getComputedStyle(document.documentElement).getPropertyValue('--nav-bar-height') || '49px';
+
   // Create or reuse iframe
   if (!iframe) {
     iframe = document.createElement("iframe");
     iframe.id = "proxy-frame";
     iframe.style.width = "100%";
-    iframe.style.height = "calc(100vh - 49px)";
+    iframe.style.height = `calc(100vh - ${navBarHeight})`;
     iframe.style.border = "none";
     container.appendChild(iframe);
   }

@@ -11,6 +11,9 @@
     <script src="/uv/uv.bundle.js"></script>
     <script src="/uv.config.js"></script>
     <style>
+      :root {
+        --nav-bar-height: 49px;
+      }
       * {
         margin: 0;
         padding: 0;
@@ -225,7 +228,7 @@
       #proxy-frame {
         display: none;
         width: 100%;
-        height: calc(100vh - 49px);
+        height: calc(100vh - var(--nav-bar-height));
         border: none;
       }
       .iframe-active #proxy-frame {
@@ -597,23 +600,28 @@
         }
       }
 
-      function goToSettings() {
-        const dropdown = document.getElementById("dropdown-menu");
-        dropdown.classList.remove("show");
-        navUrlInput.value = "nova:settings";
-        // Load settings page in iframe
+      // Helper function to get or create the proxy iframe
+      function getOrCreateProxyIframe() {
         const container = document.getElementById("container");
         container.classList.add("iframe-active");
-        
         let iframe = document.getElementById("proxy-frame");
         if (!iframe) {
           iframe = document.createElement("iframe");
           iframe.id = "proxy-frame";
           iframe.style.width = "100%";
-          iframe.style.height = "calc(100vh - 49px)";
+          iframe.style.height = "calc(100vh - var(--nav-bar-height))";
           iframe.style.border = "none";
           container.appendChild(iframe);
         }
+        return iframe;
+      }
+
+      function goToSettings() {
+        const dropdown = document.getElementById("dropdown-menu");
+        dropdown.classList.remove("show");
+        navUrlInput.value = "nova:settings";
+        // Load settings page in iframe
+        const iframe = getOrCreateProxyIframe();
         iframe.src = "/settings.html";
         iframe.style.display = "block";
       }
@@ -632,17 +640,7 @@
           return;
         }
         if (input === "nova:error") {
-          const container = document.getElementById("container");
-          container.classList.add("iframe-active");
-          let iframe = document.getElementById("proxy-frame");
-          if (!iframe) {
-            iframe = document.createElement("iframe");
-            iframe.id = "proxy-frame";
-            iframe.style.width = "100%";
-            iframe.style.height = "calc(100vh - 49px)";
-            iframe.style.border = "none";
-            container.appendChild(iframe);
-          }
+          const iframe = getOrCreateProxyIframe();
           iframe.src = "/error.html";
           iframe.style.display = "block";
           return;
