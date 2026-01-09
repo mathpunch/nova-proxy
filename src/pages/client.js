@@ -10,6 +10,43 @@ const SCRAMJET_PREFIX = "/scram/";
 // List of hostnames that are allowed to run service workers on http://
 const swAllowedHostnames = ["localhost", "127.0.0.1"];
 
+// Cache transport configuration to avoid redundant setup
+let transportConfigured = false;
+let lastWispUrl = null;
+let transportConfigPromise = null;
+
+// Shared function to configure transport (with deduplication)
+async function ensureTransportConfigured() {
+  const wispUrl = getWispUrl();
+  
+  // If already configured with the same URL, return immediately
+  if (transportConfigured && lastWispUrl === wispUrl) {
+    return;
+  }
+  
+  // If there's an ongoing configuration, wait for it
+  if (transportConfigPromise) {
+    await transportConfigPromise;
+    return;
+  }
+  
+  // Start configuration
+  transportConfigPromise = (async () => {
+    try {
+      const currentTransport = await connection.getTransport();
+      if (currentTransport !== TRANSPORT_PATH || lastWispUrl !== wispUrl) {
+        await connection.setTransport(TRANSPORT_PATH, [{ wisp: wispUrl }]);
+      }
+      transportConfigured = true;
+      lastWispUrl = wispUrl;
+    } finally {
+      transportConfigPromise = null;
+    }
+  })();
+  
+  await transportConfigPromise;
+}
+
 // Get settings from localStorage
 function getSettings() {
   return {
@@ -221,13 +258,8 @@ async function loadProxiedUrlScramjet(url) {
     throw err;
   }
 
-  // Set up epoxy transport with Wisp
-  const wispUrl = getWispUrl();
-
-  const currentTransport = await connection.getTransport();
-  if (currentTransport !== TRANSPORT_PATH) {
-    await connection.setTransport(TRANSPORT_PATH, [{ wisp: wispUrl }]);
-  }
+  // Set up epoxy transport with Wisp (use shared function for caching and deduplication)
+  await ensureTransportConfigured();
 
   const container = document.getElementById("container");
   const existingIframe = document.getElementById("proxy-frame");
@@ -275,11 +307,8 @@ async function loadProxiedUrlUltraviolet(url) {
     throw new Error("Ultraviolet configuration not available");
   }
 
-  // Set up epoxy transport with Wisp for bare-mux
-  const wispUrl = getWispUrl();
-
-  // Always set transport to ensure it's configured correctly
-  await connection.setTransport(TRANSPORT_PATH, [{ wisp: wispUrl }]);
+  // Set up epoxy transport with Wisp (use shared function for caching and deduplication)
+  await ensureTransportConfigured();
 
   try {
     await registerUltravioletSW();
