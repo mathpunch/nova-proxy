@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Error</title>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #333333;
+            --secondary-text: #666666;
+            --error-color: #d32f2f;
+            --link-color: #4a90d9;
+        }
+        
+        body.dark {
+            --bg-color: #1b1b1b;
+            --text-color: #e0e0e0;
+            --secondary-text: #aaaaaa;
+            --error-color: #ef5350;
+            --link-color: #64b5f6;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        .container {
+            text-align: center;
+            max-width: 700px;
+            padding: 20px;
+        }
+        h1 {
+            font-size: 72px;
+            margin: 0;
+            color: var(--error-color);
+        }
+        h2 {
+            font-size: 24px;
+            margin: 20px 0;
+            color: var(--text-color);
+        }
+        p {
+            font-size: 16px;
+            color: var(--secondary-text);
+            line-height: 1.6;
+        }
+        ul {
+           font-size: 16px;
+           color: var(--secondary-text);
+           line-height: 1.6;
+
+           list-style-position: inside;
+           padding-left: 0;
+           text-align: left;
+        }
+        a {
+            color: var(--link-color);
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .error-code {
+            font-size: 14px;
+            color: var(--secondary-text);
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>404</h1>
+        <h2>Oops!</h2>
+        <p>The page you are looking for might have been removed, had its name changed, or is temporarily unavailable. If the error Presists...</p>
+        <ul>
+          <li>Ensure the Site and page URL are valid</li>
+          <li>Check your Proxy, Firewall, Or System Security Setting</li>
+          <li>Ensure that your browser alows for JavaScript</li>
+          <li>Check that the server isint Censored</li>
+          <li>Make Shure that the Ultravilot and Scramjet ServiceWorkers are working properley</li>
+          <li>Ensure that your wss or ws WebSocet connection is stable and that WebSocets are alowed</li>
+          <li>Ensure that your Router, Modem, and Internet Conection are functioning and stable</li>
+        </ul>
+        <p>If the Error Continues, consider conticting your ISP or reading out <a href="https://github.com/sriail/nova-proxy">Documentation.</a></p>
+        <p class="error-code">404: Error loading page</p>
+    </div>
+    
+    <script>
+        // Settings storage key
+        const THEME_KEY = 'browser_theme';
+        
+        // Apply theme to page
+        function applyTheme() {
+            const theme = localStorage.getItem(THEME_KEY) || 'system';
+            
+            if (theme === 'dark') {
+                document.body.classList.add('dark');
+            } else if (theme === 'light') {
+                document.body.classList.remove('dark');
+            } else {
+                // System theme - check if system prefers dark
+                if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                    document.body.classList.add('dark');
+                } else {
+                    document.body.classList.remove('dark');
+                }
+            }
+        }
+        
+        // Apply theme on load
+        applyTheme();
+        
+        // Listen for system theme changes
+        if (window.matchMedia) {
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {
+                const currentTheme = localStorage.getItem(THEME_KEY) || 'system';
+                if (currentTheme === 'system') {
+                    applyTheme();
+                }
+            });
+        }
+    </script>
+</body>
+</html>
