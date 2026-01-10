@@ -276,8 +276,9 @@ function extractPageInfo(iframe, isUltraviolet, scramjetFrame) {
     if (iframeDoc) {
       pageTitle = iframeDoc.title || null;
       
-      // Try to find favicon - check for link elements with icon rel
-      const linkIcon = iframeDoc.querySelector('link[rel="icon"], link[rel="shortcut icon"], link[rel*="icon"]');
+      // Try to find favicon - check for standard icon link relationships
+      // Using specific selectors to avoid matching unrelated elements
+      const linkIcon = iframeDoc.querySelector('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"], link[rel="apple-touch-icon-precomposed"]');
       if (linkIcon && linkIcon.href) {
         try {
           const faviconUrl = new URL(linkIcon.href);
@@ -394,7 +395,7 @@ function setupUrlTracking(iframe, isUltraviolet, tabId) {
   });
   
   // For Scramjet frames, also set up polling since SPA navigation doesn't trigger load events
-  // Use a modest interval to balance responsiveness and performance
+  // Use a 2-second interval to balance responsiveness and performance
   if (!isUltraviolet) {
     const pollInterval = setInterval(() => {
       // Check if iframe is still in the DOM
@@ -404,7 +405,7 @@ function setupUrlTracking(iframe, isUltraviolet, tabId) {
         return;
       }
       checkAndUpdate();
-    }, 1000); // Poll every second
+    }, 2000); // Poll every 2 seconds
     
     tabPollingIntervals.set(tabId, pollInterval);
   }
