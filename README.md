@@ -45,3 +45,11 @@ npm dev
 - Twitch
 
 And may more!
+## System Support 
+- Recaptha
+- Hcaptha
+- Yandex Cloud
+- Cloudflare (comming soon)
+- Varfication cookies*
+
+And more
