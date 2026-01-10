@@ -45,7 +45,7 @@ npm dev
 - Twitch
 
 And may more!
-## System Support 
+## System/ Varification Support 
 - Recaptha
 - Hcaptha
 - Yandex Cloud
@@ -53,3 +53,5 @@ And may more!
 - Varfication cookies*
 
 And more
+
+*not all varafication cookies will work or function properley and errors can occur 
