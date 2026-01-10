@@ -1117,16 +1117,58 @@
         return 'New Tab';
       }
       
-      // Get favicon HTML for tab
-      function getTabFaviconHtml(tab) {
-        if (tab.type === 'home' || tab.type === 'settings') {
-          return NOVA_ICON_SVG;
+      // Sanitize URL for safe use (only allow http/https protocols)
+      function sanitizeUrl(url) {
+        if (!url) return null;
+        try {
+          const urlObj = new URL(url);
+          if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
+            return urlObj.href;
+          }
+        } catch (e) {
+          // Invalid URL
         }
-        if (tab.favicon) {
-          return `<img src="${tab.favicon}" alt="" onerror="this.parentElement.innerHTML='${NOVA_ICON_SVG.replace(/'/g, "\\'")}'" />`;
+        return null;
+      }
+      
+      // Create favicon element for tab (returns DOM element or HTML string)
+      function createFaviconElement(tab, useHtml) {
+        if (tab.type === 'home' || tab.type === 'settings') {
+          if (useHtml) return NOVA_ICON_SVG;
+          const div = document.createElement('div');
+          div.innerHTML = NOVA_ICON_SVG;
+          return div.firstElementChild;
+        }
+        const safeFavicon = sanitizeUrl(tab.favicon);
+        if (safeFavicon) {
+          if (useHtml) {
+            // For HTML string, we need to escape properly
+            const escapedUrl = safeFavicon
+              .replace(/&/g, '&amp;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+            return `<img src="${escapedUrl}" alt="" />`;
+          }
+          const img = document.createElement('img');
+          img.src = safeFavicon;
+          img.alt = '';
+          img.onerror = function() {
+            this.parentElement.innerHTML = NOVA_ICON_SVG;
+          };
+          return img;
         }
         // Default to Nova icon if no favicon
-        return NOVA_ICON_SVG;
+        if (useHtml) return NOVA_ICON_SVG;
+        const div = document.createElement('div');
+        div.innerHTML = NOVA_ICON_SVG;
+        return div.firstElementChild;
+      }
+      
+      // Get favicon HTML for tab (legacy compatibility)
+      function getTabFaviconHtml(tab) {
+        return createFaviconElement(tab, true);
       }
       
       // Create tab DOM element
@@ -1136,11 +1178,34 @@
         tabEl.dataset.tabId = tab.id;
         tabEl.draggable = true;
         
-        tabEl.innerHTML = `
-          <div class="tab-favicon">${getTabFaviconHtml(tab)}</div>
-          <span class="tab-title">${getTabTitle(tab)}</span>
-          <button class="tab-close" title="Close tab">${CLOSE_ICON_SVG}</button>
-        `;
+        // Create favicon container
+        const faviconDiv = document.createElement('div');
+        faviconDiv.className = 'tab-favicon';
+        const faviconEl = createFaviconElement(tab, false);
+        if (faviconEl) {
+          faviconDiv.appendChild(faviconEl);
+          // Add onerror handler for image elements
+          if (faviconEl.tagName === 'IMG') {
+            faviconEl.onerror = function() {
+              this.parentElement.innerHTML = NOVA_ICON_SVG;
+            };
+          }
+        }
+        
+        // Create title span
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'tab-title';
+        titleSpan.textContent = getTabTitle(tab);
+        
+        // Create close button
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'tab-close';
+        closeBtn.title = 'Close tab';
+        closeBtn.innerHTML = CLOSE_ICON_SVG;
+        
+        tabEl.appendChild(faviconDiv);
+        tabEl.appendChild(titleSpan);
+        tabEl.appendChild(closeBtn);
         
         // Click to switch tab
         tabEl.addEventListener('click', (e) => {
@@ -1187,9 +1252,10 @@
               tabEl.before(draggedTab);
             }
             
-            // Reorder in tabs array
+            // Reorder in tabs array - adjust dropIndex when moving forward
             const draggedTabData = tabs.splice(draggedIndex, 1)[0];
-            tabs.splice(dropIndex, 0, draggedTabData);
+            const adjustedDropIndex = draggedIndex < dropIndex ? dropIndex - 1 : dropIndex;
+            tabs.splice(adjustedDropIndex, 0, draggedTabData);
             
             saveTabsToStorage();
           }
@@ -1389,8 +1455,16 @@
         if (info.title !== undefined) tab.title = info.title;
         if (info.favicon !== undefined) tab.favicon = info.favicon;
         
-        // Update DOM
-        const tabEl = document.querySelector(`.tab[data-tab-id="${tabId}"]`);
+        // Update DOM - find tab element safely by iterating
+        const container = document.getElementById('tabs-container');
+        const tabEls = container.querySelectorAll('.tab');
+        let tabEl = null;
+        for (const el of tabEls) {
+          if (parseInt(el.dataset.tabId, 10) === tabId) {
+            tabEl = el;
+            break;
+          }
+        }
         if (tabEl) {
           tabEl.querySelector('.tab-title').textContent = getTabTitle(tab);
           tabEl.querySelector('.tab-favicon').innerHTML = getTabFaviconHtml(tab);

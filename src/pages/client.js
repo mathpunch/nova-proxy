@@ -246,15 +246,25 @@ function setupUrlTracking(iframe, isUltraviolet, tabId) {
         if (iframeDoc) {
           pageTitle = iframeDoc.title || null;
           
-          // Try to find favicon
+          // Try to find favicon - validate URL for security
           const linkIcon = iframeDoc.querySelector('link[rel="icon"], link[rel="shortcut icon"]');
           if (linkIcon && linkIcon.href) {
-            favicon = linkIcon.href;
+            // Validate favicon URL - only allow http/https protocols
+            try {
+              const faviconUrl = new URL(linkIcon.href);
+              if (faviconUrl.protocol === 'http:' || faviconUrl.protocol === 'https:') {
+                favicon = faviconUrl.href;
+              }
+            } catch (e) {
+              // Invalid URL, skip
+            }
           } else if (currentUrl) {
             // Use default favicon location
             try {
               const urlObj = new URL(currentUrl);
-              favicon = urlObj.origin + '/favicon.ico';
+              if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
+                favicon = urlObj.origin + '/favicon.ico';
+              }
             } catch (e) {}
           }
         }
