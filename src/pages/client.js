@@ -98,9 +98,8 @@ function encodeProxyUrl(url) {
       return scramjet.encodeUrl(url);
     }
     
-    // Fallback: return the original URL if we can't encode it
-    // The proxy will handle it through the service worker
-    return url;
+    // If no encoder is available, return null to indicate encoding failure
+    return null;
   } catch (e) {
     return null;
   }
@@ -266,7 +265,8 @@ function extractPageInfo(iframe, currentUrl) {
       pageTitle = iframeDoc.title || null;
       
       // Try to find favicon - check for link elements with icon rel
-      const linkIcon = iframeDoc.querySelector('link[rel="icon"], link[rel="shortcut icon"], link[rel*="icon"]');
+      // Use explicit selectors for standard favicon types
+      const linkIcon = iframeDoc.querySelector('link[rel="icon"], link[rel="shortcut icon"]');
       if (linkIcon && linkIcon.href) {
         // The href in the proxied page is already proxied, so we can use it directly
         favicon = linkIcon.href;
@@ -292,6 +292,9 @@ function extractPageInfo(iframe, currentUrl) {
   
   return { pageTitle, favicon };
 }
+
+// Delay in milliseconds to wait for page content to be ready after navigation
+const PAGE_INFO_DELAY_MS = 150;
 
 // Update tab and URL bar with current page info
 function updatePageInfo(tabId, currentUrl, iframe) {
@@ -322,33 +325,38 @@ function setupScramjetUrlTracking(scramjetFrame, tabId) {
     try {
       const currentUrl = event.url;
       
-      // Small delay to allow the page to load and set title/favicon
+      // Delay to allow the page to load and set title/favicon
+      // Using setTimeout is necessary because the urlchange event fires before
+      // the document content (title, favicon links) is updated
       setTimeout(() => {
         updatePageInfo(tabId, currentUrl, scramjetFrame.frame);
-      }, 100);
+      }, PAGE_INFO_DELAY_MS);
     } catch (e) {
       console.log("Error tracking Scramjet URL change:", e);
     }
   });
   
   // Listen for navigation events from Scramjet
+  // This fires when navigation starts, so we update the URL immediately
+  // but wait for urlchange event to update title/favicon
   scramjetFrame.addEventListener("navigate", function(event) {
     try {
       const currentUrl = event.url;
       
-      // Update URL immediately on navigation
+      // Update URL and tab info immediately on navigation start
+      // Title and favicon will be updated by the urlchange event after page loads
+      if (tabId !== undefined && typeof window.updateTabInfo === "function") {
+        window.updateTabInfo(tabId, {
+          url: currentUrl || undefined
+        });
+      }
+      
+      // Also update the URL bar immediately
       if (currentUrl && currentUrl !== lastKnownUrl) {
         lastKnownUrl = currentUrl;
         if (typeof window.updateNavUrlBar === "function") {
           window.updateNavUrlBar(currentUrl);
         }
-      }
-      
-      // Update tab URL if tab system is available
-      if (tabId !== undefined && typeof window.updateTabInfo === "function") {
-        window.updateTabInfo(tabId, {
-          url: currentUrl || undefined
-        });
       }
     } catch (e) {
       console.log("Error tracking Scramjet navigation:", e);
@@ -361,17 +369,20 @@ function setupScramjetUrlTracking(scramjetFrame, tabId) {
       // Get the current URL from the ScramjetFrame
       let currentUrl = null;
       try {
-        if (scramjetFrame.url) {
+        // Check if url property exists and has a valid toString method
+        if (scramjetFrame.url && typeof scramjetFrame.url.toString === 'function') {
           currentUrl = scramjetFrame.url.toString();
+        } else if (scramjetFrame.url && typeof scramjetFrame.url === 'string') {
+          currentUrl = scramjetFrame.url;
         }
       } catch (e) {
         // URL property might not be available yet
       }
       
-      // Small delay to allow the page content to be ready
+      // Delay to allow the page content to be ready
       setTimeout(() => {
         updatePageInfo(tabId, currentUrl, scramjetFrame.frame);
-      }, 200);
+      }, PAGE_INFO_DELAY_MS);
     } catch (e) {
       console.log("Error tracking Scramjet iframe load:", e);
     }
@@ -392,10 +403,10 @@ function setupUrlTracking(iframe, isUltraviolet, tabId) {
         currentUrl = decodeProxyUrl(iframeLocation, isUltraviolet);
       }
       
-      // Update page info with a small delay to allow content to be ready
+      // Delay to allow content to be ready before extracting page info
       setTimeout(() => {
         updatePageInfo(tabId, currentUrl, iframe);
-      }, 100);
+      }, PAGE_INFO_DELAY_MS);
     } catch (e) {
       console.log("Error tracking URL:", e);
     }
