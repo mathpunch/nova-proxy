@@ -7,6 +7,9 @@ const TRANSPORT_PATH = "/epoxy/index.mjs";
 // Scramjet URL prefix for proxy routes
 const SCRAMJET_PREFIX = "/scram/";
 
+// Ultraviolet URL prefix for proxy routes (must match uv.config.js)
+const UV_PREFIX = "/service/";
+
 // List of hostnames that are allowed to run service workers on http://
 const swAllowedHostnames = ["localhost", "127.0.0.1"];
 
@@ -68,6 +71,34 @@ function getWispUrl() {
     location.host +
     "/wisp/"
   );
+}
+
+// Encode a URL through the proxy for loading resources like favicons
+// This allows external resources to be loaded through the proxy
+function encodeProxyUrl(url) {
+  if (!url) return null;
+  
+  try {
+    const urlObj = new URL(url);
+    // Only proxy http/https URLs
+    if (urlObj.protocol !== 'http:' && urlObj.protocol !== 'https:') {
+      return null;
+    }
+    
+    const settings = getSettings();
+    
+    // For Ultraviolet, use the UV encoding
+    if (settings.proxyEngine === "ultraviolet" && typeof __uv$config !== "undefined" && typeof __uv$config.encodeUrl === "function") {
+      return __uv$config.prefix + __uv$config.encodeUrl(url);
+    }
+    
+    // For Scramjet, construct the proxy URL
+    // Scramjet uses /scram/service/<encoded-url> format
+    // The service worker handles the encoding, so we use a simple approach
+    return SCRAMJET_PREFIX + "service/" + encodeURIComponent(url);
+  } catch (e) {
+    return null;
+  }
 }
 
 // Register the service worker for Scramjet
@@ -246,30 +277,47 @@ function setupUrlTracking(iframe, isUltraviolet, tabId) {
         if (iframeDoc) {
           pageTitle = iframeDoc.title || null;
           
-          // Try to find favicon - validate URL for security
+          // Try to find favicon - check for link elements with icon rel
           const linkIcon = iframeDoc.querySelector('link[rel="icon"], link[rel="shortcut icon"]');
           if (linkIcon && linkIcon.href) {
-            // Validate favicon URL - only allow http/https protocols
             try {
               const faviconUrl = new URL(linkIcon.href);
-              if (faviconUrl.protocol === 'http:' || faviconUrl.protocol === 'https:') {
+              // Check if this is already a proxied URL (local path)
+              if (faviconUrl.origin === location.origin) {
+                // Already proxied, use as-is
                 favicon = faviconUrl.href;
+              } else if (faviconUrl.protocol === 'http:' || faviconUrl.protocol === 'https:') {
+                // External URL - proxy it so it can be loaded
+                favicon = encodeProxyUrl(faviconUrl.href);
               }
             } catch (e) {
               // Invalid URL, skip
             }
-          } else if (currentUrl) {
-            // Use default favicon location
+          }
+          
+          // If no favicon found from link element, try default location
+          if (!favicon && currentUrl) {
             try {
               const urlObj = new URL(currentUrl);
               if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
-                favicon = urlObj.origin + '/favicon.ico';
+                // Construct default favicon URL and proxy it
+                const defaultFaviconUrl = urlObj.origin + '/favicon.ico';
+                favicon = encodeProxyUrl(defaultFaviconUrl);
               }
             } catch (e) {}
           }
         }
       } catch (e) {
-        // Cross-origin, can't access document
+        // Cross-origin, can't access document - try default favicon if we have currentUrl
+        if (!favicon && currentUrl) {
+          try {
+            const urlObj = new URL(currentUrl);
+            if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
+              const defaultFaviconUrl = urlObj.origin + '/favicon.ico';
+              favicon = encodeProxyUrl(defaultFaviconUrl);
+            }
+          } catch (e) {}
+        }
       }
       
       // Update the nav URL bar if we got a valid URL

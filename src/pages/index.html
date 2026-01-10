@@ -1120,16 +1120,28 @@
         return 'New Tab';
       }
       
-      // Sanitize URL for safe use (only allow http/https protocols)
+      // Sanitize URL for safe use (allow http/https protocols and local proxy paths)
       function sanitizeUrl(url) {
         if (!url) return null;
         try {
-          const urlObj = new URL(url);
+          const urlObj = new URL(url, location.origin);
+          // Allow http/https protocols
           if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
+            // For local proxy paths (same origin), allow them
+            if (urlObj.origin === location.origin) {
+              // Verify it's a valid proxy path
+              if (urlObj.pathname.startsWith('/scram/') || urlObj.pathname.startsWith('/service/')) {
+                return urlObj.href;
+              }
+            }
+            // For external URLs, also allow (browser will handle CORS)
             return urlObj.href;
           }
         } catch (e) {
-          // Invalid URL
+          // Invalid URL - check if it's a relative proxy path
+          if (typeof url === 'string' && (url.startsWith('/scram/') || url.startsWith('/service/'))) {
+            return url;
+          }
         }
         return null;
       }
