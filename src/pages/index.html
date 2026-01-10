@@ -1129,8 +1129,8 @@
           if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
             // For local proxy paths (same origin), allow them
             if (urlObj.origin === location.origin) {
-              // Verify it's a valid proxy path
-              if (urlObj.pathname.startsWith('/scram/') || urlObj.pathname.startsWith('/service/')) {
+              // Verify it's a valid proxy path (scramjet uses /scramjet/, /scram/, UV uses /service/)
+              if (urlObj.pathname.startsWith('/scramjet/') || urlObj.pathname.startsWith('/scram/') || urlObj.pathname.startsWith('/service/')) {
                 return urlObj.href;
               }
             }
@@ -1139,7 +1139,7 @@
           }
         } catch (e) {
           // Invalid URL - check if it's a relative proxy path
-          if (typeof url === 'string' && (url.startsWith('/scram/') || url.startsWith('/service/'))) {
+          if (typeof url === 'string' && (url.startsWith('/scramjet/') || url.startsWith('/scram/') || url.startsWith('/service/'))) {
             return url;
           }
         }
@@ -1388,12 +1388,14 @@
       function showOrCreateTabIframe(tab, overrideUrl) {
         const container = document.getElementById('container');
         let iframe = null;
+        let isNewIframe = false;
         
         if (tab.iframeId) {
           iframe = document.getElementById(tab.iframeId);
         }
         
         if (!iframe) {
+          isNewIframe = true;
           iframe = document.createElement('iframe');
           tab.iframeId = 'tab-iframe-' + tab.id;
           iframe.id = tab.iframeId;
@@ -1407,14 +1409,14 @@
           if (oldFrame) oldFrame.remove();
           
           container.appendChild(iframe);
-          
-          // Load URL if we have one
-          if (overrideUrl) {
-            iframe.src = overrideUrl;
-          } else if (tab.url && window.loadUrlInTab) {
-            // Use the proxy loader from client.js
-            window.loadUrlInTab(tab.id, tab.url);
-          }
+        }
+        
+        // Load URL - always update src when overrideUrl is provided
+        if (overrideUrl) {
+          iframe.src = overrideUrl;
+        } else if (isNewIframe && tab.url && window.loadUrlInTab) {
+          // Use the proxy loader from client.js for new iframes
+          window.loadUrlInTab(tab.id, tab.url);
         }
         
         iframe.style.display = 'block';
