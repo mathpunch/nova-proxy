@@ -411,44 +411,148 @@ function setupScramjetUrlTracking(scramjetFrame, tabId) {
   scramjetFrame.addEventListener("contextInit", function(event) {
     try {
       const proxiedWindow = event.window;
+      const scramjetClient = event.client;
       if (!proxiedWindow) return;
       
-      // Save the original window.open from the proxied context
-      const originalOpen = proxiedWindow.open;
-      
-      // Override window.open in the proxied context
-      proxiedWindow.open = function(url, target, features) {
-        // Check if tab system is available
-        if (typeof window.openUrlInNewTab !== 'function') {
-          // Fall back to original behavior if tab system not available
-          return originalOpen.call(proxiedWindow, url, target, features);
-        }
-        
-        // Handle about:blank or empty URL - create a new home tab
-        if (!url || url === 'about:blank') {
-          console.log("Intercepted proxied window.open for empty/about:blank, opening new home tab");
-          window.openUrlInNewTab('');
-          return null;
-        }
-        
-        // Resolve relative URLs against the current proxied URL
-        let resolvedUrl;
-        try {
-          if (scramjetFrame.url) {
-            resolvedUrl = new URL(url, scramjetFrame.url.toString()).toString();
-          } else {
-            resolvedUrl = new URL(url, proxiedWindow.location.href).toString();
+      // Use ScramjetClient's RawProxy to wrap window.open AFTER Scramjet has hooked it
+      // This allows us to intercept calls before they reach Scramjet's native window.open call
+      if (scramjetClient && typeof scramjetClient.RawProxy === 'function') {
+        scramjetClient.RawProxy(proxiedWindow, 'open', {
+          apply: function(proxyArgs) {
+            // proxyArgs is Scramjet's proxy context with: fn, this, args, return(), call()
+            const url = proxyArgs.args[0];
+            const target = proxyArgs.args[1];
+            
+            // Check if tab system is available
+            if (typeof window.openUrlInNewTab !== 'function') {
+              // Fall back to Scramjet's behavior if tab system not available
+              return; // Let Scramjet handle it normally
+            }
+            
+            // Handle about:blank or empty URL - create a new home tab
+            if (!url || url === 'about:blank') {
+              console.log("Intercepted proxied window.open for empty/about:blank, opening new home tab");
+              window.openUrlInNewTab('');
+              proxyArgs.return(null);
+              return;
+            }
+            
+            // Resolve relative URLs against the current proxied URL
+            let resolvedUrl;
+            try {
+              // Try to get the base URL from the scramjet client or frame
+              let baseUrl;
+              if (scramjetClient && scramjetClient.url) {
+                baseUrl = scramjetClient.url.toString();
+              } else if (scramjetFrame.url) {
+                baseUrl = scramjetFrame.url.toString();
+              } else {
+                // Use location.href from the proxied window as fallback
+                baseUrl = proxiedWindow.location.href;
+              }
+              resolvedUrl = new URL(url, baseUrl).toString();
+            } catch (e) {
+              resolvedUrl = url;
+            }
+            
+            console.log("Intercepted proxied window.open via RawProxy, opening in new tab:", resolvedUrl);
+            window.openUrlInNewTab(resolvedUrl);
+            proxyArgs.return(null);
           }
-        } catch (e) {
-          resolvedUrl = url;
-        }
+        });
+        console.log("Window.open interception set up via RawProxy for proxied frame");
+      } else {
+        // Fallback: try direct override if RawProxy is not available
+        const scramjetOpen = proxiedWindow.open;
         
-        console.log("Intercepted proxied window.open, opening in new tab:", resolvedUrl);
-        window.openUrlInNewTab(resolvedUrl);
-        return null;
-      };
+        const interceptedOpen = function(url, target, features) {
+          if (typeof window.openUrlInNewTab !== 'function') {
+            return scramjetOpen.call(proxiedWindow, url, target, features);
+          }
+          
+          if (!url || url === 'about:blank') {
+            console.log("Intercepted proxied window.open for empty/about:blank, opening new home tab");
+            window.openUrlInNewTab('');
+            return null;
+          }
+          
+          let resolvedUrl;
+          try {
+            let baseUrl;
+            if (scramjetClient && scramjetClient.url) {
+              baseUrl = scramjetClient.url.toString();
+            } else if (scramjetFrame.url) {
+              baseUrl = scramjetFrame.url.toString();
+            } else {
+              baseUrl = proxiedWindow.location.href;
+            }
+            resolvedUrl = new URL(url, baseUrl).toString();
+          } catch (e) {
+            resolvedUrl = url;
+          }
+          
+          console.log("Intercepted proxied window.open (fallback), opening in new tab:", resolvedUrl);
+          window.openUrlInNewTab(resolvedUrl);
+          return null;
+        };
+        
+        try {
+          Object.defineProperty(proxiedWindow, 'open', {
+            value: interceptedOpen,
+            writable: true,
+            configurable: true,
+            enumerable: true
+          });
+        } catch (e) {
+          proxiedWindow.open = interceptedOpen;
+        }
+        console.log("Window.open interception set up via fallback for proxied frame");
+      }
       
-      console.log("Window.open interception set up for proxied frame");
+      // Also intercept target="_blank" links by adding a click handler
+      try {
+        const doc = proxiedWindow.document;
+        if (doc) {
+          doc.addEventListener('click', function(e) {
+            let target = e.target;
+            while (target && target.tagName !== 'A') {
+              target = target.parentElement;
+            }
+            
+            if (target && target.tagName === 'A') {
+              const linkTarget = target.getAttribute('target');
+              if (linkTarget === '_blank' || linkTarget === '_new') {
+                const href = target.href;
+                if (href && typeof window.openUrlInNewTab === 'function') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  
+                  let resolvedUrl;
+                  try {
+                    let baseUrl;
+                    if (scramjetClient && scramjetClient.url) {
+                      baseUrl = scramjetClient.url.toString();
+                    } else if (scramjetFrame.url) {
+                      baseUrl = scramjetFrame.url.toString();
+                    } else {
+                      baseUrl = proxiedWindow.location.href;
+                    }
+                    resolvedUrl = new URL(href, baseUrl).toString();
+                  } catch (err) {
+                    resolvedUrl = href;
+                  }
+                  
+                  console.log("Intercepted target=_blank link click, opening in new tab:", resolvedUrl);
+                  window.openUrlInNewTab(resolvedUrl);
+                  return false;
+                }
+              }
+            }
+          }, true);
+        }
+      } catch (linkError) {
+        console.log("Could not set up link click interception:", linkError);
+      }
     } catch (e) {
       console.log("Error setting up window.open interception in proxied frame:", e);
     }
