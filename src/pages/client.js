@@ -265,20 +265,13 @@ function extractPageInfo(iframe, currentUrl) {
       pageTitle = iframeDoc.title || null;
       
       // Try to find favicon - check multiple selectors in order of preference
-      // Use explicit selectors for various favicon types
-      const faviconSelectors = [
-        'link[rel="icon"]',
-        'link[rel="shortcut icon"]', 
-        'link[rel="apple-touch-icon"]',
-        'link[rel="apple-touch-icon-precomposed"]',
-        'link[rel="mask-icon"]'
-      ];
-      
-      for (const selector of faviconSelectors) {
-        const linkIcon = iframeDoc.querySelector(selector);
-        if (linkIcon && linkIcon.href) {
-          // The href in the proxied page is already proxied, so we can use it directly
-          favicon = linkIcon.href;
+      // Look for link elements with rel containing "icon" (case-insensitive)
+      const linkElements = iframeDoc.querySelectorAll('link[rel]');
+      for (const link of linkElements) {
+        const rel = (link.getAttribute('rel') || '').toLowerCase();
+        // Check for various icon rel values
+        if (rel.includes('icon') && link.href) {
+          favicon = link.href;
           break;
         }
       }
