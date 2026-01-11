@@ -1312,9 +1312,7 @@
         });
         
         // Ensure the add button is at the end of the container
-        if (addBtn && addBtn.parentNode !== container) {
-          container.appendChild(addBtn);
-        } else if (addBtn && container.lastElementChild !== addBtn) {
+        if (addBtn && (addBtn.parentNode !== container || container.lastElementChild !== addBtn)) {
           container.appendChild(addBtn);
         }
         
