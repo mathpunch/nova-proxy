@@ -264,12 +264,23 @@ function extractPageInfo(iframe, currentUrl) {
     if (iframeDoc) {
       pageTitle = iframeDoc.title || null;
       
-      // Try to find favicon - check for link elements with icon rel
-      // Use explicit selectors for standard favicon types
-      const linkIcon = iframeDoc.querySelector('link[rel="icon"], link[rel="shortcut icon"]');
-      if (linkIcon && linkIcon.href) {
-        // The href in the proxied page is already proxied, so we can use it directly
-        favicon = linkIcon.href;
+      // Try to find favicon - check multiple selectors in order of preference
+      // Use explicit selectors for various favicon types
+      const faviconSelectors = [
+        'link[rel="icon"]',
+        'link[rel="shortcut icon"]', 
+        'link[rel="apple-touch-icon"]',
+        'link[rel="apple-touch-icon-precomposed"]',
+        'link[rel="mask-icon"]'
+      ];
+      
+      for (const selector of faviconSelectors) {
+        const linkIcon = iframeDoc.querySelector(selector);
+        if (linkIcon && linkIcon.href) {
+          // The href in the proxied page is already proxied, so we can use it directly
+          favicon = linkIcon.href;
+          break;
+        }
       }
     }
   } catch (e) {
@@ -294,10 +305,19 @@ function extractPageInfo(iframe, currentUrl) {
 }
 
 // Delay in milliseconds to wait for page content to be ready after navigation
-const PAGE_INFO_DELAY_MS = 150;
+const PAGE_INFO_DELAY_MS = 250;
+
+// Retry delay for favicon extraction if not found on first attempt
+const FAVICON_RETRY_DELAY_MS = 500;
+
+// Maximum number of retries for favicon extraction
+const MAX_FAVICON_RETRIES = 2;
+
+// Track pending favicon retries to prevent overlapping attempts
+const pendingFaviconRetries = new Map();
 
 // Update tab and URL bar with current page info
-function updatePageInfo(tabId, currentUrl, iframe) {
+function updatePageInfo(tabId, currentUrl, iframe, retryCount = 0) {
   const { pageTitle, favicon } = extractPageInfo(iframe, currentUrl);
   
   // Update the nav URL bar if we got a valid URL
@@ -310,11 +330,42 @@ function updatePageInfo(tabId, currentUrl, iframe) {
   
   // Update tab info if tab system is available
   if (tabId !== undefined && typeof window.updateTabInfo === "function") {
-    window.updateTabInfo(tabId, {
-      url: currentUrl || undefined,
-      title: pageTitle || undefined,
-      favicon: favicon || undefined
-    });
+    // Only update title if we have one
+    const updateData = {
+      url: currentUrl || undefined
+    };
+    
+    if (pageTitle) {
+      updateData.title = pageTitle;
+    }
+    
+    // Only update favicon if we found one, otherwise preserve existing
+    if (favicon) {
+      updateData.favicon = favicon;
+      // Clear any pending retry since we found a favicon
+      if (pendingFaviconRetries.has(tabId)) {
+        clearTimeout(pendingFaviconRetries.get(tabId));
+        pendingFaviconRetries.delete(tabId);
+      }
+    }
+    
+    window.updateTabInfo(tabId, updateData);
+  }
+  
+  // If no favicon found and we haven't retried too many times, try again
+  // Some pages load favicons dynamically
+  if (!favicon && retryCount < MAX_FAVICON_RETRIES && tabId !== undefined) {
+    // Clear any existing retry for this tab to prevent overlapping
+    if (pendingFaviconRetries.has(tabId)) {
+      clearTimeout(pendingFaviconRetries.get(tabId));
+    }
+    
+    const timeoutId = setTimeout(() => {
+      pendingFaviconRetries.delete(tabId);
+      updatePageInfo(tabId, currentUrl, iframe, retryCount + 1);
+    }, FAVICON_RETRY_DELAY_MS);
+    
+    pendingFaviconRetries.set(tabId, timeoutId);
   }
 }
 
