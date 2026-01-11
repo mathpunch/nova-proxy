@@ -92,10 +92,14 @@ function encodeProxyUrl(url) {
       return __uv$config.prefix + __uv$config.encodeUrl(url);
     }
     
-    // For Scramjet, construct the proxy URL
-    // Scramjet uses /scram/service/<encoded-url> format
-    // The service worker handles the encoding, so we use a simple approach
-    return SCRAMJET_PREFIX + "service/" + encodeURIComponent(url);
+    // For Scramjet, use the scramjet controller to encode the URL properly
+    // Scramjet uses its own URL encoding scheme
+    if (typeof scramjet !== "undefined" && scramjet.encodeUrl) {
+      return scramjet.encodeUrl(url);
+    }
+    
+    // If no encoder is available, return null to indicate encoding failure
+    return null;
   } catch (e) {
     return null;
   }
@@ -250,15 +254,199 @@ function getIframeLocationUrl(iframe) {
   }
 }
 
-// Setup URL tracking for iframe navigation changes
+// Helper function to extract page info (title, favicon) from an iframe document
+function extractPageInfo(iframe, currentUrl) {
+  let pageTitle = null;
+  let favicon = null;
+  
+  try {
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    if (iframeDoc) {
+      pageTitle = iframeDoc.title || null;
+      
+      // Try to find favicon - check multiple selectors in order of preference
+      // Use explicit selectors for various favicon types
+      const faviconSelectors = [
+        'link[rel="icon"]',
+        'link[rel="shortcut icon"]', 
+        'link[rel="apple-touch-icon"]',
+        'link[rel="apple-touch-icon-precomposed"]',
+        'link[rel="mask-icon"]'
+      ];
+      
+      for (const selector of faviconSelectors) {
+        const linkIcon = iframeDoc.querySelector(selector);
+        if (linkIcon && linkIcon.href) {
+          // The href in the proxied page is already proxied, so we can use it directly
+          favicon = linkIcon.href;
+          break;
+        }
+      }
+    }
+  } catch (e) {
+    // Cross-origin, can't access document
+  }
+  
+  // If no favicon found from link element, try default location using the original URL
+  if (!favicon && currentUrl) {
+    try {
+      const urlObj = new URL(currentUrl);
+      if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
+        // Construct default favicon URL and proxy it
+        const defaultFaviconUrl = urlObj.origin + '/favicon.ico';
+        favicon = encodeProxyUrl(defaultFaviconUrl);
+      }
+    } catch (e) {
+      // Invalid URL
+    }
+  }
+  
+  return { pageTitle, favicon };
+}
+
+// Delay in milliseconds to wait for page content to be ready after navigation
+const PAGE_INFO_DELAY_MS = 250;
+
+// Retry delay for favicon extraction if not found on first attempt
+const FAVICON_RETRY_DELAY_MS = 500;
+
+// Maximum number of retries for favicon extraction
+const MAX_FAVICON_RETRIES = 2;
+
+// Track pending favicon retries to prevent overlapping attempts
+const pendingFaviconRetries = new Map();
+
+// Update tab and URL bar with current page info
+function updatePageInfo(tabId, currentUrl, iframe, retryCount = 0) {
+  const { pageTitle, favicon } = extractPageInfo(iframe, currentUrl);
+  
+  // Update the nav URL bar if we got a valid URL
+  if (currentUrl && currentUrl !== lastKnownUrl) {
+    lastKnownUrl = currentUrl;
+    if (typeof window.updateNavUrlBar === "function") {
+      window.updateNavUrlBar(currentUrl);
+    }
+  }
+  
+  // Update tab info if tab system is available
+  if (tabId !== undefined && typeof window.updateTabInfo === "function") {
+    // Only update title if we have one
+    const updateData = {
+      url: currentUrl || undefined
+    };
+    
+    if (pageTitle) {
+      updateData.title = pageTitle;
+    }
+    
+    // Only update favicon if we found one, otherwise preserve existing
+    if (favicon) {
+      updateData.favicon = favicon;
+      // Clear any pending retry since we found a favicon
+      if (pendingFaviconRetries.has(tabId)) {
+        clearTimeout(pendingFaviconRetries.get(tabId));
+        pendingFaviconRetries.delete(tabId);
+      }
+    }
+    
+    window.updateTabInfo(tabId, updateData);
+  }
+  
+  // If no favicon found and we haven't retried too many times, try again
+  // Some pages load favicons dynamically
+  if (!favicon && retryCount < MAX_FAVICON_RETRIES && tabId !== undefined) {
+    // Clear any existing retry for this tab to prevent overlapping
+    if (pendingFaviconRetries.has(tabId)) {
+      clearTimeout(pendingFaviconRetries.get(tabId));
+    }
+    
+    const timeoutId = setTimeout(() => {
+      pendingFaviconRetries.delete(tabId);
+      updatePageInfo(tabId, currentUrl, iframe, retryCount + 1);
+    }, FAVICON_RETRY_DELAY_MS);
+    
+    pendingFaviconRetries.set(tabId, timeoutId);
+  }
+}
+
+// Setup URL tracking for Scramjet frames using ScramjetFrame events
+function setupScramjetUrlTracking(scramjetFrame, tabId) {
+  // Listen for URL change events from Scramjet
+  scramjetFrame.addEventListener("urlchange", function(event) {
+    try {
+      const currentUrl = event.url;
+      
+      // Delay to allow the page to load and set title/favicon
+      // Using setTimeout is necessary because the urlchange event fires before
+      // the document content (title, favicon links) is updated
+      setTimeout(() => {
+        updatePageInfo(tabId, currentUrl, scramjetFrame.frame);
+      }, PAGE_INFO_DELAY_MS);
+    } catch (e) {
+      console.log("Error tracking Scramjet URL change:", e);
+    }
+  });
+  
+  // Listen for navigation events from Scramjet
+  // This fires when navigation starts, so we update the URL immediately
+  // but wait for urlchange event to update title/favicon
+  scramjetFrame.addEventListener("navigate", function(event) {
+    try {
+      const currentUrl = event.url;
+      
+      // Update URL and tab info immediately on navigation start
+      // Title and favicon will be updated by the urlchange event after page loads
+      if (tabId !== undefined && typeof window.updateTabInfo === "function") {
+        window.updateTabInfo(tabId, {
+          url: currentUrl || undefined
+        });
+      }
+      
+      // Also update the URL bar immediately
+      if (currentUrl && currentUrl !== lastKnownUrl) {
+        lastKnownUrl = currentUrl;
+        if (typeof window.updateNavUrlBar === "function") {
+          window.updateNavUrlBar(currentUrl);
+        }
+      }
+    } catch (e) {
+      console.log("Error tracking Scramjet navigation:", e);
+    }
+  });
+  
+  // Also listen for iframe load events as a fallback for initial load
+  scramjetFrame.frame.addEventListener("load", function() {
+    try {
+      // Get the current URL from the ScramjetFrame
+      let currentUrl = null;
+      try {
+        // Check if url property exists and has a valid toString method
+        if (scramjetFrame.url && typeof scramjetFrame.url.toString === 'function') {
+          currentUrl = scramjetFrame.url.toString();
+        } else if (scramjetFrame.url && typeof scramjetFrame.url === 'string') {
+          currentUrl = scramjetFrame.url;
+        }
+      } catch (e) {
+        // URL property might not be available yet
+      }
+      
+      // Delay to allow the page content to be ready
+      setTimeout(() => {
+        updatePageInfo(tabId, currentUrl, scramjetFrame.frame);
+      }, PAGE_INFO_DELAY_MS);
+    } catch (e) {
+      console.log("Error tracking Scramjet iframe load:", e);
+    }
+  });
+}
+
+// Setup URL tracking for iframe navigation changes (for Ultraviolet)
 function setupUrlTracking(iframe, isUltraviolet, tabId) {
   // Listen for iframe load events
   iframe.addEventListener("load", function() {
     try {
       // Try to get the current URL from the iframe
       let currentUrl = null;
-      let pageTitle = null;
-      let favicon = null;
       
       // Try accessing iframe's contentWindow location
       const iframeLocation = getIframeLocationUrl(iframe);
@@ -266,76 +454,10 @@ function setupUrlTracking(iframe, isUltraviolet, tabId) {
         currentUrl = decodeProxyUrl(iframeLocation, isUltraviolet);
       }
       
-      // For Scramjet frames, try using the frame's URL property if available
-      if (!currentUrl && currentFrame && !currentFrame.isUltraviolet && currentFrame.url) {
-        currentUrl = currentFrame.url;
-      }
-      
-      // Try to get page title and favicon from iframe
-      try {
-        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-        if (iframeDoc) {
-          pageTitle = iframeDoc.title || null;
-          
-          // Try to find favicon - check for link elements with icon rel
-          const linkIcon = iframeDoc.querySelector('link[rel="icon"], link[rel="shortcut icon"]');
-          if (linkIcon && linkIcon.href) {
-            try {
-              const faviconUrl = new URL(linkIcon.href);
-              // Check if this is already a proxied URL (local path)
-              if (faviconUrl.origin === location.origin) {
-                // Already proxied, use as-is
-                favicon = faviconUrl.href;
-              } else if (faviconUrl.protocol === 'http:' || faviconUrl.protocol === 'https:') {
-                // External URL - proxy it so it can be loaded
-                favicon = encodeProxyUrl(faviconUrl.href);
-              }
-            } catch (e) {
-              // Invalid URL, skip
-            }
-          }
-          
-          // If no favicon found from link element, try default location
-          if (!favicon && currentUrl) {
-            try {
-              const urlObj = new URL(currentUrl);
-              if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
-                // Construct default favicon URL and proxy it
-                const defaultFaviconUrl = urlObj.origin + '/favicon.ico';
-                favicon = encodeProxyUrl(defaultFaviconUrl);
-              }
-            } catch (e) {}
-          }
-        }
-      } catch (e) {
-        // Cross-origin, can't access document - try default favicon if we have currentUrl
-        if (!favicon && currentUrl) {
-          try {
-            const urlObj = new URL(currentUrl);
-            if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
-              const defaultFaviconUrl = urlObj.origin + '/favicon.ico';
-              favicon = encodeProxyUrl(defaultFaviconUrl);
-            }
-          } catch (e) {}
-        }
-      }
-      
-      // Update the nav URL bar if we got a valid URL
-      if (currentUrl && currentUrl !== lastKnownUrl) {
-        lastKnownUrl = currentUrl;
-        if (typeof window.updateNavUrlBar === "function") {
-          window.updateNavUrlBar(currentUrl);
-        }
-      }
-      
-      // Update tab info if tab system is available
-      if (tabId !== undefined && typeof window.updateTabInfo === "function") {
-        window.updateTabInfo(tabId, {
-          url: currentUrl || undefined,
-          title: pageTitle || undefined,
-          favicon: favicon || undefined
-        });
-      }
+      // Delay to allow content to be ready before extracting page info
+      setTimeout(() => {
+        updatePageInfo(tabId, currentUrl, iframe);
+      }, PAGE_INFO_DELAY_MS);
     } catch (e) {
       console.log("Error tracking URL:", e);
     }
@@ -407,8 +529,8 @@ async function loadProxiedUrlScramjet(url, tabId) {
     window.updateNavUrlBar(url);
   }
 
-  // Setup URL change tracking for Scramjet
-  setupUrlTracking(frame.frame, false, tabId);
+  // Setup URL change tracking using Scramjet's native events
+  setupScramjetUrlTracking(frame, tabId);
 
   // Navigate to URL
   frame.go(url);
@@ -752,23 +874,25 @@ document.addEventListener("DOMContentLoaded", () => {
     await loadProxiedUrl(url, tabId);
   };
 
-  // Go home function - this is overridden by the tab system in index.html
-  // but we keep it for fallback
-  window.goHome = function () {
-    const container = document.getElementById("container");
-    container.classList.remove("iframe-active");
-    urlInput.value = "";
-    currentFrame = null;
+  // Go home function - only define if not already overridden by the tab system
+  // The tab system in index.html may override this before DOMContentLoaded
+  if (typeof window.goHome !== "function") {
+    window.goHome = function () {
+      const container = document.getElementById("container");
+      container.classList.remove("iframe-active");
+      urlInput.value = "";
+      currentFrame = null;
 
-    // Clear the nav URL bar
-    if (typeof window.updateNavUrlBar === "function") {
-      window.updateNavUrlBar("");
-    }
+      // Clear the nav URL bar
+      if (typeof window.updateNavUrlBar === "function") {
+        window.updateNavUrlBar("");
+      }
 
-    // Remove and reset the iframe for a cleaner state
-    const iframe = document.getElementById("proxy-frame");
-    if (iframe) {
-      iframe.remove();
-    }
-  };
+      // Remove and reset the iframe for a cleaner state
+      const iframe = document.getElementById("proxy-frame");
+      if (iframe) {
+        iframe.remove();
+      }
+    };
+  }
 });
