@@ -55,4 +55,5 @@ And may more!
 And more
 
 *Not all varafication cookies will work or function properley and errors can occur.
+
 †Recaptha and Hcaptha Supported on Scramjet proxy, However, Ultravilot may struggle, especialy with a heavley traficed wisp server.
