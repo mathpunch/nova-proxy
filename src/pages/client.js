@@ -1309,6 +1309,32 @@ function setupBrowserVerification() {
   }
 }
 
+// Allowed Cloudflare domains for challenge scripts
+const CLOUDFLARE_DOMAINS = [
+  "challenges.cloudflare.com",
+  "static.cloudflareinsights.com",
+  "cloudflare.com"
+];
+
+// Safely validate if a URL is from a Cloudflare domain
+function isCloudflareScriptUrl(src) {
+  if (!src) return false;
+  
+  try {
+    // Parse the URL properly
+    const url = new URL(src, location.origin);
+    const hostname = url.hostname.toLowerCase();
+    
+    // Check if the hostname matches or is a subdomain of allowed domains
+    return CLOUDFLARE_DOMAINS.some(domain => 
+      hostname === domain || hostname.endsWith("." + domain)
+    );
+  } catch (e) {
+    // Invalid URL, not a Cloudflare script
+    return false;
+  }
+}
+
 // Setup Cloudflare-specific handling
 function setupCloudflareSupport() {
   // Listen for Cloudflare challenge page detection
@@ -1332,8 +1358,8 @@ function setupCloudflareSupport() {
           // Check for scripts that might be Cloudflare challenges
           if (node.tagName === "SCRIPT") {
             const src = node.getAttribute("src") || "";
-            if (src.includes("challenges.cloudflare.com") || 
-                src.includes("turnstile")) {
+            // Properly validate that the script is from Cloudflare domains
+            if (isCloudflareScriptUrl(src)) {
               // Allow the script to run - it's a verification challenge
               console.log("Nova: Cloudflare challenge script detected");
             }
