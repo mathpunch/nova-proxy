@@ -716,6 +716,9 @@ function setupScramjetUrlTracking(scramjetFrame, tabId) {
         // URL property might not be available yet
       }
       
+      // Setup verification cookie handler for the iframe
+      setupVerificationCookieHandler(scramjetFrame.frame);
+      
       // Delay to allow the page content to be ready
       setTimeout(() => {
         updatePageInfo(tabId, currentUrl, scramjetFrame.frame);
@@ -777,6 +780,9 @@ function setupUrlTracking(iframe, isUltraviolet, tabId) {
         setupUltravioletWindowOpenInterception(iframe, currentUrl);
         setupUltravioletNavigationTracking(iframe, tabId);
       }
+      
+      // Setup verification cookie handler for the iframe
+      setupVerificationCookieHandler(iframe);
       
       // Update page info
       updateCurrentPageInfo();
@@ -1189,6 +1195,268 @@ function setupCookieRewriter() {
   }
 }
 
+// ============================================
+// Browser Verification and Cloudflare Support
+// ============================================
+
+// Cloudflare and browser verification cookie names that must be preserved
+const VERIFICATION_COOKIES = [
+  "cf_clearance",      // Cloudflare clearance cookie
+  "__cf_bm",           // Cloudflare bot management
+  "_cf_bm",            // Alternative Cloudflare bot management
+  "cf_chl_prog",       // Cloudflare challenge progress
+  "cf_chl_rc_ni",      // Cloudflare challenge recaptcha
+  "cf_chl_seq_",       // Cloudflare challenge sequence
+  "__cfruid",          // Cloudflare rate limiting UID
+  "__cfwaitingroom",   // Cloudflare waiting room
+  "_cfuvid",           // Cloudflare unique visitor ID
+  // hCaptcha related
+  "hc_accessibility",
+  // reCAPTCHA related  
+  "_GRECAPTCHA",
+  // Turnstile related
+  "cf_turnstile_"
+];
+
+// Check if a cookie name is a verification cookie
+function isVerificationCookie(cookieName) {
+  const name = cookieName.toLowerCase().trim();
+  return VERIFICATION_COOKIES.some(vcookie => 
+    name === vcookie.toLowerCase() || name.startsWith(vcookie.toLowerCase())
+  );
+}
+
+// Preserve verification cookies by extending their path and removing restrictions
+function preserveVerificationCookie(cookieString) {
+  // Parse the cookie to check if it's a verification cookie
+  const parts = cookieString.split(";");
+  const nameValue = parts[0].split("=");
+  const cookieName = nameValue[0].trim();
+  
+  if (!isVerificationCookie(cookieName)) {
+    return cookieString; // Not a verification cookie, return as-is
+  }
+  
+  // Ensure verification cookies have broad path and proper settings
+  let modified = cookieString;
+  
+  // Remove restrictive path and set to root
+  modified = modified.replace(/;\s*path=[^;]+/gi, "");
+  modified += "; path=/";
+  
+  // Ensure SameSite is set appropriately for verification cookies
+  if (!/;\s*samesite=/i.test(modified)) {
+    modified += "; SameSite=None";
+  }
+  
+  // Ensure Secure flag is set if on HTTPS
+  if (location.protocol === "https:" && !/;\s*secure/i.test(modified)) {
+    modified += "; Secure";
+  }
+  
+  return modified;
+}
+
+// Setup browser verification support
+function setupBrowserVerification() {
+  // Ensure navigator properties look like a real browser
+  // This helps pass basic browser verification checks
+  
+  // Preserve webdriver detection - ensure we don't look like automated
+  try {
+    // Only modify if webdriver is detected as true (indicating automation)
+    if (navigator.webdriver === true) {
+      Object.defineProperty(navigator, "webdriver", {
+        get: () => false,
+        configurable: true
+      });
+    }
+  } catch (e) {
+    // Property might not be configurable in some browsers
+  }
+  
+  // Ensure plugins array looks normal (some verification checks this)
+  try {
+    if (navigator.plugins.length === 0) {
+      // Create a mock plugins array to appear more like a real browser
+      const mockPlugins = {
+        length: 3,
+        item: (index) => mockPlugins[index],
+        namedItem: (name) => mockPlugins[0],
+        refresh: () => {},
+        0: { name: "Chrome PDF Plugin", filename: "internal-pdf-viewer", description: "Portable Document Format" },
+        1: { name: "Chrome PDF Viewer", filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai", description: "" },
+        2: { name: "Native Client", filename: "internal-nacl-plugin", description: "" }
+      };
+      Object.defineProperty(navigator, "plugins", {
+        get: () => mockPlugins,
+        configurable: true
+      });
+    }
+  } catch (e) {
+    // Property might not be configurable
+  }
+  
+  // Ensure languages look normal
+  try {
+    if (!navigator.languages || navigator.languages.length === 0) {
+      Object.defineProperty(navigator, "languages", {
+        get: () => ["en-US", "en"],
+        configurable: true
+      });
+    }
+  } catch (e) {
+    // Property might not be configurable
+  }
+}
+
+// Setup Cloudflare-specific handling
+function setupCloudflareSupport() {
+  // Listen for Cloudflare challenge page detection
+  // Cloudflare challenges typically include specific elements or scripts
+  
+  // Monitor for iframe load events to detect CF challenges
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          // Check for Cloudflare Turnstile widget
+          if (node.classList && (
+            node.classList.contains("cf-turnstile") ||
+            node.classList.contains("cf-challenge") ||
+            node.id === "cf-wrapper" ||
+            node.id === "challenge-form"
+          )) {
+            handleCloudflareChallenge(node);
+          }
+          
+          // Check for scripts that might be Cloudflare challenges
+          if (node.tagName === "SCRIPT") {
+            const src = node.getAttribute("src") || "";
+            if (src.includes("challenges.cloudflare.com") || 
+                src.includes("turnstile")) {
+              // Allow the script to run - it's a verification challenge
+              console.log("Nova: Cloudflare challenge script detected");
+            }
+          }
+        }
+      });
+    });
+  });
+  
+  // Start observing document for Cloudflare elements
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } else {
+    document.addEventListener("DOMContentLoaded", () => {
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+  }
+  
+  // Override fetch to handle Cloudflare challenge responses
+  const originalFetch = window.fetch;
+  window.fetch = async function(...args) {
+    try {
+      const response = await originalFetch.apply(this, args);
+      
+      // Check for Cloudflare challenge response
+      const cfRay = response.headers.get("cf-ray");
+      const cfChallenge = response.headers.get("cf-mitigated");
+      
+      if (cfChallenge === "challenge" || response.status === 403 || response.status === 503) {
+        // This might be a Cloudflare challenge, let it proceed normally
+        // The challenge page will handle verification
+        console.log("Nova: Cloudflare challenge response detected");
+      }
+      
+      return response;
+    } catch (error) {
+      throw error;
+    }
+  };
+}
+
+// Handle detected Cloudflare challenge elements
+function handleCloudflareChallenge(element) {
+  console.log("Nova: Cloudflare challenge detected, allowing verification");
+  
+  // Ensure the challenge element has proper styling to be visible
+  // Some challenges might be hidden or have z-index issues in proxy context
+  if (element.style) {
+    // Ensure visibility
+    element.style.visibility = "visible";
+    element.style.opacity = "1";
+    
+    // Ensure proper z-index for overlay challenges
+    if (element.id === "cf-wrapper" || element.classList.contains("cf-challenge")) {
+      element.style.zIndex = "999999";
+      element.style.position = "relative";
+    }
+  }
+  
+  // Find and ensure any forms within the challenge are submittable
+  const forms = element.querySelectorAll("form");
+  forms.forEach((form) => {
+    // Ensure form action is not blocked
+    form.addEventListener("submit", (e) => {
+      console.log("Nova: Cloudflare verification form submitted");
+      // Let the form submit normally
+    });
+  });
+  
+  // Look for Turnstile widget and ensure it's properly initialized
+  const turnstileWidgets = element.querySelectorAll(".cf-turnstile, [data-turnstile-callback]");
+  turnstileWidgets.forEach((widget) => {
+    console.log("Nova: Turnstile widget found, ensuring proper initialization");
+    // Turnstile should self-initialize, but we ensure it's visible
+    widget.style.display = "block";
+    widget.style.visibility = "visible";
+  });
+}
+
+// Enhanced cookie handler for verification in iframes
+function setupVerificationCookieHandler(iframe) {
+  try {
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    if (!iframeDoc) return;
+    
+    // Override document.cookie in the iframe to handle verification cookies
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      iframeDoc.constructor.prototype,
+      "cookie"
+    );
+    
+    if (originalDescriptor) {
+      Object.defineProperty(iframeDoc, "cookie", {
+        get: function() {
+          return originalDescriptor.get.call(this);
+        },
+        set: function(value) {
+          // Preserve and enhance verification cookies
+          const enhancedValue = preserveVerificationCookie(value);
+          return originalDescriptor.set.call(this, enhancedValue);
+        },
+        configurable: true
+      });
+    }
+  } catch (e) {
+    // Cross-origin iframe, cannot access
+  }
+}
+
+// Setup all verification support systems
+function setupVerificationSupport() {
+  const settings = getSettings();
+  
+  // Browser verification is always enabled for compatibility
+  setupBrowserVerification();
+  
+  // Cloudflare support is always enabled
+  setupCloudflareSupport();
+  
+  console.log("Nova: Browser and Cloudflare verification support enabled");
+}
+
 // Common ad-serving domains to block
 const AD_DOMAINS = [
   "doubleclick.net",
@@ -1398,6 +1666,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupCookieRewriter();
   setupWindowOpenInjection();
   setupAdBlocker();
+  setupVerificationSupport();
 
   const urlInput = document.getElementById("url-input");
 
