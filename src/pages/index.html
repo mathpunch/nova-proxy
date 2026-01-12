@@ -1291,6 +1291,9 @@
         const container = document.getElementById('tabs-container');
         const addBtn = document.getElementById('tab-add-btn');
         
+        // Safety check: ensure required elements exist
+        if (!container) return;
+        
         // Remove all tabs but keep the add button
         const existingTabs = container.querySelectorAll('.tab');
         existingTabs.forEach(tab => tab.remove());
@@ -1300,9 +1303,18 @@
           if (tab.id === activeTabId) {
             tabEl.classList.add('active');
           }
-          // Insert before the add button
-          container.insertBefore(tabEl, addBtn);
+          // Insert before the add button (or append at end if button not found)
+          if (addBtn && addBtn.parentNode === container) {
+            container.insertBefore(tabEl, addBtn);
+          } else {
+            container.appendChild(tabEl);
+          }
         });
+        
+        // Ensure the add button is at the end of the container
+        if (addBtn && (addBtn.parentNode !== container || container.lastElementChild !== addBtn)) {
+          container.appendChild(addBtn);
+        }
         
         adjustTabSizes();
       }
@@ -1314,7 +1326,8 @@
         const addBtn = document.getElementById('tab-add-btn');
         const tabEls = container.querySelectorAll('.tab');
         
-        if (tabEls.length === 0) return;
+        // Early return if required elements are missing
+        if (!container || !tabBar || !addBtn || tabEls.length === 0) return;
         
         // Reset all tabs to default state
         tabEls.forEach(tab => {
@@ -1486,6 +1499,7 @@
         
         // Update DOM - find tab element safely by iterating
         const container = document.getElementById('tabs-container');
+        if (!container) return;
         const tabEls = container.querySelectorAll('.tab');
         let tabEl = null;
         for (const el of tabEls) {
@@ -1495,8 +1509,20 @@
           }
         }
         if (tabEl) {
-          tabEl.querySelector('.tab-title').textContent = getTabTitle(tab);
-          tabEl.querySelector('.tab-favicon').innerHTML = getTabFaviconHtml(tab);
+          const titleEl = tabEl.querySelector('.tab-title');
+          if (titleEl) {
+            titleEl.textContent = getTabTitle(tab);
+          }
+          
+          // Update favicon - use DOM element creation to properly attach onerror handler
+          const faviconContainer = tabEl.querySelector('.tab-favicon');
+          if (faviconContainer) {
+            faviconContainer.innerHTML = '';
+            const faviconEl = createFaviconElement(tab, false);
+            if (faviconEl) {
+              faviconContainer.appendChild(faviconEl);
+            }
+          }
         }
         
         // Update nav URL bar if this is the active tab
@@ -1533,6 +1559,34 @@
         
         // The actual proxy loading is handled by client.js
         // We just need to prepare the tab state
+      };
+      
+      // Open a URL in a new tab (used by window.open interception)
+      // Returns the new tab ID for tracking
+      window.openUrlInNewTab = function(url) {
+        // If no URL or empty URL, create a home tab
+        if (!url) {
+          const tab = createTabData('home', '', 'New Tab');
+          tabs.push(tab);
+          renderTabs();
+          switchToTab(tab.id);
+          saveTabsToStorage();
+          return tab.id;
+        }
+        
+        // Create a new proxy tab with the URL
+        const tab = createTabData('proxy', url, '');
+        tabs.push(tab);
+        renderTabs();
+        switchToTab(tab.id);
+        saveTabsToStorage();
+        
+        // Load the URL in the new tab
+        if (window.loadUrlInTab) {
+          window.loadUrlInTab(tab.id, url);
+        }
+        
+        return tab.id;
       };
       
       // Storage functions

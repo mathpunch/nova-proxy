@@ -254,10 +254,141 @@ function getIframeLocationUrl(iframe) {
   }
 }
 
+// Cache for favicon data URLs to avoid repeated fetches
+const faviconCache = new Map();
+
+// Fetch favicon through proxy and convert to data URL
+async function fetchFaviconAsDataUrl(faviconUrl) {
+  if (!faviconUrl) return null;
+  
+  // Check cache first
+  if (faviconCache.has(faviconUrl)) {
+    return faviconCache.get(faviconUrl);
+  }
+  
+  try {
+    // First try with no-cors mode (for same-origin proxy URLs)
+    let response;
+    try {
+      response = await fetch(faviconUrl, {
+        mode: 'cors',
+        credentials: 'omit',
+        cache: 'force-cache'
+      });
+    } catch (corsError) {
+      // If CORS fails, try no-cors mode
+      try {
+        response = await fetch(faviconUrl, {
+          mode: 'no-cors',
+          credentials: 'omit',
+          cache: 'force-cache'
+        });
+      } catch (e) {
+        console.log("Favicon fetch failed:", e.message);
+        return null;
+      }
+    }
+    
+    // For no-cors responses, we can't check status or read body properly
+    // So we need to handle opaque responses - return null and caller will use URL directly
+    if (response.type === 'opaque') {
+      return null;
+    }
+    
+    if (!response.ok) {
+      console.log("Favicon fetch returned status:", response.status);
+      return null;
+    }
+    
+    const blob = await response.blob();
+    
+    // Only process image types, but also accept empty type (some servers don't set it)
+    if (blob.type && !blob.type.startsWith('image/') && blob.type !== 'application/octet-stream') {
+      console.log("Favicon blob is not an image:", blob.type);
+      return null;
+    }
+    
+    // Check if blob has content
+    if (blob.size === 0) {
+      return null;
+    }
+    
+    // Convert blob to data URL
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUrl = reader.result;
+        // Cache the result
+        faviconCache.set(faviconUrl, dataUrl);
+        resolve(dataUrl);
+      };
+      reader.onerror = (error) => {
+        console.log("FileReader error:", error);
+        resolve(null);
+      };
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.log("Error fetching favicon:", e.message);
+    return null;
+  }
+}
+
+// Extract the original favicon URL from a proxied URL or href
+function extractOriginalFaviconUrl(href, currentUrl) {
+  if (!href) return null;
+  
+  try {
+    // Check if it's already a proxied URL
+    const hrefUrl = new URL(href);
+    
+    // Try to decode if it's a proxy URL
+    if (hrefUrl.pathname.startsWith(SCRAMJET_PREFIX)) {
+      // Scramjet proxied URL - try to decode
+      const decoded = decodeProxyUrl(href, false);
+      if (decoded) return decoded;
+    } else if (typeof __uv$config !== "undefined" && hrefUrl.pathname.startsWith(__uv$config.prefix)) {
+      // UV proxied URL - try to decode
+      const decoded = decodeProxyUrl(href, true);
+      if (decoded) return decoded;
+    }
+    
+    // If it's an absolute URL to the same origin, it might be a proxy URL
+    if (hrefUrl.origin === location.origin) {
+      // Try both decoders
+      let decoded = decodeProxyUrl(href, false);
+      if (decoded) return decoded;
+      decoded = decodeProxyUrl(href, true);
+      if (decoded) return decoded;
+    }
+    
+    // If it's an external absolute URL, use it directly
+    if (hrefUrl.protocol === 'http:' || hrefUrl.protocol === 'https:') {
+      return href;
+    }
+    
+    // If it's a relative URL, resolve against the current URL
+    if (currentUrl) {
+      return new URL(href, currentUrl).toString();
+    }
+  } catch (e) {
+    // Try as relative URL
+    if (currentUrl) {
+      try {
+        return new URL(href, currentUrl).toString();
+      } catch (e2) {
+        // Invalid URL
+      }
+    }
+  }
+  
+  return null;
+}
+
 // Helper function to extract page info (title, favicon) from an iframe document
 function extractPageInfo(iframe, currentUrl) {
   let pageTitle = null;
-  let favicon = null;
+  let faviconUrl = null;
   
   try {
     const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
@@ -265,43 +396,41 @@ function extractPageInfo(iframe, currentUrl) {
       pageTitle = iframeDoc.title || null;
       
       // Try to find favicon - check multiple selectors in order of preference
-      // Use explicit selectors for various favicon types
-      const faviconSelectors = [
-        'link[rel="icon"]',
-        'link[rel="shortcut icon"]', 
-        'link[rel="apple-touch-icon"]',
-        'link[rel="apple-touch-icon-precomposed"]',
-        'link[rel="mask-icon"]'
-      ];
-      
-      for (const selector of faviconSelectors) {
-        const linkIcon = iframeDoc.querySelector(selector);
-        if (linkIcon && linkIcon.href) {
-          // The href in the proxied page is already proxied, so we can use it directly
-          favicon = linkIcon.href;
-          break;
+      // Look for link elements with rel containing "icon" (case-insensitive)
+      const linkElements = iframeDoc.querySelectorAll('link[rel]');
+      for (const link of linkElements) {
+        const rel = (link.getAttribute('rel') || '').toLowerCase();
+        // Check for various icon rel values
+        if (rel.includes('icon')) {
+          // Use the resolved href property directly - it's already a valid URL
+          // that the browser can access (either proxied or absolute)
+          if (link.href) {
+            faviconUrl = link.href;
+            break;
+          }
         }
       }
     }
   } catch (e) {
-    // Cross-origin, can't access document
+    // Cross-origin, can't access document - try fallback
+    console.log("Cannot access iframe document for favicon:", e.message);
   }
   
   // If no favicon found from link element, try default location using the original URL
-  if (!favicon && currentUrl) {
+  if (!faviconUrl && currentUrl) {
     try {
       const urlObj = new URL(currentUrl);
       if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
         // Construct default favicon URL and proxy it
         const defaultFaviconUrl = urlObj.origin + '/favicon.ico';
-        favicon = encodeProxyUrl(defaultFaviconUrl);
+        faviconUrl = encodeProxyUrl(defaultFaviconUrl);
       }
     } catch (e) {
       // Invalid URL
     }
   }
   
-  return { pageTitle, favicon };
+  return { pageTitle, favicon: faviconUrl };
 }
 
 // Delay in milliseconds to wait for page content to be ready after navigation
@@ -313,11 +442,14 @@ const FAVICON_RETRY_DELAY_MS = 500;
 // Maximum number of retries for favicon extraction
 const MAX_FAVICON_RETRIES = 2;
 
+// Delay for navigation event handlers to allow URL to update
+const NAVIGATION_CHECK_DELAY_MS = 50;
+
 // Track pending favicon retries to prevent overlapping attempts
 const pendingFaviconRetries = new Map();
 
 // Update tab and URL bar with current page info
-function updatePageInfo(tabId, currentUrl, iframe, retryCount = 0) {
+async function updatePageInfo(tabId, currentUrl, iframe, retryCount = 0) {
   const { pageTitle, favicon } = extractPageInfo(iframe, currentUrl);
   
   // Update the nav URL bar if we got a valid URL
@@ -339,14 +471,17 @@ function updatePageInfo(tabId, currentUrl, iframe, retryCount = 0) {
       updateData.title = pageTitle;
     }
     
-    // Only update favicon if we found one, otherwise preserve existing
+    // If we found a favicon URL, try to fetch it and convert to data URL
     if (favicon) {
-      updateData.favicon = favicon;
       // Clear any pending retry since we found a favicon
       if (pendingFaviconRetries.has(tabId)) {
         clearTimeout(pendingFaviconRetries.get(tabId));
         pendingFaviconRetries.delete(tabId);
       }
+      
+      // Try to fetch the favicon as a data URL for better reliability
+      const dataUrl = await fetchFaviconAsDataUrl(favicon);
+      updateData.favicon = dataUrl || favicon;
     }
     
     window.updateTabInfo(tabId, updateData);
@@ -414,6 +549,157 @@ function setupScramjetUrlTracking(scramjetFrame, tabId) {
     }
   });
   
+  // Listen for context initialization to intercept window.open inside the proxied frame
+  scramjetFrame.addEventListener("contextInit", function(event) {
+    try {
+      const proxiedWindow = event.window;
+      const scramjetClient = event.client;
+      if (!proxiedWindow) return;
+      
+      // Use ScramjetClient's RawProxy to wrap window.open AFTER Scramjet has hooked it
+      // This allows us to intercept calls before they reach Scramjet's native window.open call
+      if (scramjetClient && typeof scramjetClient.RawProxy === 'function') {
+        scramjetClient.RawProxy(proxiedWindow, 'open', {
+          apply: function(proxyArgs) {
+            // proxyArgs is Scramjet's proxy context with: fn, this, args, return(), call()
+            const url = proxyArgs.args[0];
+            const target = proxyArgs.args[1];
+            
+            // Check if tab system is available
+            if (typeof window.openUrlInNewTab !== 'function') {
+              // Fall back to Scramjet's behavior if tab system not available
+              return; // Let Scramjet handle it normally
+            }
+            
+            // Handle about:blank or empty URL - create a new home tab
+            if (!url || url === 'about:blank') {
+              console.log("Intercepted proxied window.open for empty/about:blank, opening new home tab");
+              window.openUrlInNewTab('');
+              proxyArgs.return(null);
+              return;
+            }
+            
+            // Resolve relative URLs against the current proxied URL
+            let resolvedUrl;
+            try {
+              // Try to get the base URL from the scramjet client or frame
+              let baseUrl;
+              if (scramjetClient && scramjetClient.url) {
+                baseUrl = scramjetClient.url.toString();
+              } else if (scramjetFrame.url) {
+                baseUrl = scramjetFrame.url.toString();
+              } else {
+                // Use location.href from the proxied window as fallback
+                baseUrl = proxiedWindow.location.href;
+              }
+              resolvedUrl = new URL(url, baseUrl).toString();
+            } catch (e) {
+              resolvedUrl = url;
+            }
+            
+            console.log("Intercepted proxied window.open via RawProxy, opening in new tab:", resolvedUrl);
+            window.openUrlInNewTab(resolvedUrl);
+            proxyArgs.return(null);
+          }
+        });
+        console.log("Window.open interception set up via RawProxy for proxied frame");
+      } else {
+        // Fallback: try direct override if RawProxy is not available
+        const scramjetOpen = proxiedWindow.open;
+        
+        const interceptedOpen = function(url, target, features) {
+          if (typeof window.openUrlInNewTab !== 'function') {
+            return scramjetOpen.call(proxiedWindow, url, target, features);
+          }
+          
+          if (!url || url === 'about:blank') {
+            console.log("Intercepted proxied window.open for empty/about:blank, opening new home tab");
+            window.openUrlInNewTab('');
+            return null;
+          }
+          
+          let resolvedUrl;
+          try {
+            let baseUrl;
+            if (scramjetClient && scramjetClient.url) {
+              baseUrl = scramjetClient.url.toString();
+            } else if (scramjetFrame.url) {
+              baseUrl = scramjetFrame.url.toString();
+            } else {
+              baseUrl = proxiedWindow.location.href;
+            }
+            resolvedUrl = new URL(url, baseUrl).toString();
+          } catch (e) {
+            resolvedUrl = url;
+          }
+          
+          console.log("Intercepted proxied window.open (fallback), opening in new tab:", resolvedUrl);
+          window.openUrlInNewTab(resolvedUrl);
+          return null;
+        };
+        
+        try {
+          Object.defineProperty(proxiedWindow, 'open', {
+            value: interceptedOpen,
+            writable: true,
+            configurable: true,
+            enumerable: true
+          });
+        } catch (e) {
+          proxiedWindow.open = interceptedOpen;
+        }
+        console.log("Window.open interception set up via fallback for proxied frame");
+      }
+      
+      // Also intercept target="_blank" links by adding a click handler
+      try {
+        const doc = proxiedWindow.document;
+        if (doc) {
+          doc.addEventListener('click', function(e) {
+            let target = e.target;
+            while (target && target.tagName !== 'A') {
+              target = target.parentElement;
+            }
+            
+            if (target && target.tagName === 'A') {
+              const linkTarget = target.getAttribute('target');
+              if (linkTarget === '_blank' || linkTarget === '_new') {
+                const href = target.href;
+                if (href && typeof window.openUrlInNewTab === 'function') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  
+                  let resolvedUrl;
+                  try {
+                    let baseUrl;
+                    if (scramjetClient && scramjetClient.url) {
+                      baseUrl = scramjetClient.url.toString();
+                    } else if (scramjetFrame.url) {
+                      baseUrl = scramjetFrame.url.toString();
+                    } else {
+                      baseUrl = proxiedWindow.location.href;
+                    }
+                    resolvedUrl = new URL(href, baseUrl).toString();
+                  } catch (err) {
+                    resolvedUrl = href;
+                  }
+                  
+                  console.log("Intercepted target=_blank link click, opening in new tab:", resolvedUrl);
+                  window.openUrlInNewTab(resolvedUrl);
+                  return false;
+                }
+              }
+            }
+          }, true);
+        }
+      } catch (linkError) {
+        console.log("Could not set up link click interception:", linkError);
+      }
+    } catch (e) {
+      console.log("Error setting up window.open interception in proxied frame:", e);
+    }
+  });
+  
   // Also listen for iframe load events as a fallback for initial load
   scramjetFrame.frame.addEventListener("load", function() {
     try {
@@ -442,8 +728,11 @@ function setupScramjetUrlTracking(scramjetFrame, tabId) {
 
 // Setup URL tracking for iframe navigation changes (for Ultraviolet)
 function setupUrlTracking(iframe, isUltraviolet, tabId) {
-  // Listen for iframe load events
-  iframe.addEventListener("load", function() {
+  // Track last known URL to avoid duplicate updates
+  let lastTrackedUrl = null;
+  
+  // Function to update page info with current URL
+  function updateCurrentPageInfo() {
     try {
       // Try to get the current URL from the iframe
       let currentUrl = null;
@@ -454,14 +743,246 @@ function setupUrlTracking(iframe, isUltraviolet, tabId) {
         currentUrl = decodeProxyUrl(iframeLocation, isUltraviolet);
       }
       
-      // Delay to allow content to be ready before extracting page info
-      setTimeout(() => {
-        updatePageInfo(tabId, currentUrl, iframe);
-      }, PAGE_INFO_DELAY_MS);
+      // Only update if URL actually changed
+      if (currentUrl && currentUrl !== lastTrackedUrl) {
+        lastTrackedUrl = currentUrl;
+        
+        // Delay to allow content to be ready before extracting page info
+        setTimeout(() => {
+          updatePageInfo(tabId, currentUrl, iframe);
+        }, PAGE_INFO_DELAY_MS);
+      } else if (currentUrl === lastTrackedUrl) {
+        // URL is the same, but title/favicon might have changed (SPA navigation)
+        setTimeout(() => {
+          updatePageInfo(tabId, currentUrl, iframe);
+        }, PAGE_INFO_DELAY_MS);
+      }
     } catch (e) {
       console.log("Error tracking URL:", e);
     }
+  }
+  
+  // Listen for iframe load events
+  iframe.addEventListener("load", function() {
+    try {
+      // Get current URL
+      let currentUrl = null;
+      const iframeLocation = getIframeLocationUrl(iframe);
+      if (iframeLocation) {
+        currentUrl = decodeProxyUrl(iframeLocation, isUltraviolet);
+      }
+      
+      // For Ultraviolet, set up additional event listeners in the iframe
+      if (isUltraviolet) {
+        setupUltravioletWindowOpenInterception(iframe, currentUrl);
+        setupUltravioletNavigationTracking(iframe, tabId);
+      }
+      
+      // Update page info
+      updateCurrentPageInfo();
+    } catch (e) {
+      console.log("Error on iframe load:", e);
+    }
   });
+}
+
+// Setup navigation tracking for Ultraviolet iframe (handles SPA navigation)
+function setupUltravioletNavigationTracking(iframe, tabId) {
+  try {
+    const iframeWindow = iframe.contentWindow;
+    if (!iframeWindow) return;
+    
+    // Track last known URL for this iframe
+    let lastKnownIframeUrl = null;
+    
+    // Function to check and update URL
+    function checkAndUpdateUrl() {
+      try {
+        const iframeLocation = getIframeLocationUrl(iframe);
+        if (iframeLocation) {
+          const currentUrl = decodeProxyUrl(iframeLocation, true);
+          if (currentUrl && currentUrl !== lastKnownIframeUrl) {
+            lastKnownIframeUrl = currentUrl;
+            setTimeout(() => {
+              updatePageInfo(tabId, currentUrl, iframe);
+            }, PAGE_INFO_DELAY_MS);
+          }
+        }
+      } catch (e) {
+        // Cross-origin or other error
+      }
+    }
+    
+    // Listen for popstate events (back/forward navigation)
+    iframeWindow.addEventListener('popstate', function() {
+      setTimeout(checkAndUpdateUrl, NAVIGATION_CHECK_DELAY_MS);
+    });
+    
+    // Listen for hashchange events
+    iframeWindow.addEventListener('hashchange', function() {
+      setTimeout(checkAndUpdateUrl, NAVIGATION_CHECK_DELAY_MS);
+    });
+    
+    // Override history.pushState and history.replaceState to catch SPA navigation
+    const originalPushState = iframeWindow.history.pushState;
+    const originalReplaceState = iframeWindow.history.replaceState;
+    
+    iframeWindow.history.pushState = function(...args) {
+      const result = originalPushState.apply(this, args);
+      setTimeout(checkAndUpdateUrl, NAVIGATION_CHECK_DELAY_MS);
+      return result;
+    };
+    
+    iframeWindow.history.replaceState = function(...args) {
+      const result = originalReplaceState.apply(this, args);
+      setTimeout(checkAndUpdateUrl, NAVIGATION_CHECK_DELAY_MS);
+      return result;
+    };
+    
+    // Also watch for title changes using MutationObserver
+    try {
+      const iframeDoc = iframe.contentDocument || iframeWindow.document;
+      if (iframeDoc) {
+        const titleElement = iframeDoc.querySelector('title');
+        if (titleElement) {
+          const observer = new MutationObserver(function() {
+            setTimeout(checkAndUpdateUrl, NAVIGATION_CHECK_DELAY_MS);
+          });
+          observer.observe(titleElement, { childList: true, characterData: true, subtree: true });
+        }
+        
+        // Also observe head for new link elements (favicon changes)
+        const headElement = iframeDoc.head;
+        if (headElement) {
+          const headObserver = new MutationObserver(function(mutations) {
+            for (const mutation of mutations) {
+              if (mutation.type === 'childList') {
+                for (const node of mutation.addedNodes) {
+                  // Check if node is an element before accessing tagName
+                  if (node.nodeType === Node.ELEMENT_NODE && 
+                      node.tagName === 'LINK' && 
+                      node.rel && 
+                      node.rel.toLowerCase().includes('icon')) {
+                    setTimeout(checkAndUpdateUrl, NAVIGATION_CHECK_DELAY_MS);
+                    return;
+                  }
+                }
+              }
+            }
+          });
+          headObserver.observe(headElement, { childList: true });
+        }
+      }
+    } catch (e) {
+      // Cross-origin restriction
+    }
+    
+    console.log("UV: Navigation tracking set up for Ultraviolet iframe");
+  } catch (e) {
+    console.log("UV: Error setting up navigation tracking:", e);
+  }
+}
+
+// Setup window.open interception for Ultraviolet iframe
+function setupUltravioletWindowOpenInterception(iframe, currentUrl) {
+  try {
+    const iframeWindow = iframe.contentWindow;
+    if (!iframeWindow) return;
+    
+    // Save the original window.open
+    const originalOpen = iframeWindow.open;
+    
+    // Override window.open in the UV iframe
+    iframeWindow.open = function(url, target, features) {
+      // Check if tab system is available in parent
+      if (typeof window.openUrlInNewTab !== 'function') {
+        // Fall back to original behavior
+        return originalOpen.call(iframeWindow, url, target, features);
+      }
+      
+      // Handle about:blank or empty URL - create a new home tab
+      if (!url || url === 'about:blank') {
+        console.log("UV: Intercepted window.open for empty/about:blank, opening new home tab");
+        window.openUrlInNewTab('');
+        return null;
+      }
+      
+      // Resolve relative URLs against the current proxied URL
+      let resolvedUrl;
+      try {
+        if (currentUrl) {
+          resolvedUrl = new URL(url, currentUrl).toString();
+        } else {
+          // Try to decode the current iframe URL
+          const iframeLocation = getIframeLocationUrl(iframe);
+          if (iframeLocation) {
+            const decodedUrl = decodeProxyUrl(iframeLocation, true);
+            if (decodedUrl) {
+              resolvedUrl = new URL(url, decodedUrl).toString();
+            } else {
+              resolvedUrl = url;
+            }
+          } else {
+            resolvedUrl = url;
+          }
+        }
+      } catch (e) {
+        resolvedUrl = url;
+      }
+      
+      console.log("UV: Intercepted window.open, opening in new tab:", resolvedUrl);
+      window.openUrlInNewTab(resolvedUrl);
+      return null;
+    };
+    
+    // Also intercept target="_blank" links
+    const iframeDoc = iframeWindow.document;
+    if (iframeDoc) {
+      iframeDoc.addEventListener('click', function(e) {
+        let target = e.target;
+        while (target && target.tagName !== 'A') {
+          target = target.parentElement;
+        }
+        
+        if (target && target.tagName === 'A') {
+          const linkTarget = target.getAttribute('target');
+          if (linkTarget === '_blank' || linkTarget === '_new') {
+            const href = target.href;
+            if (href && typeof window.openUrlInNewTab === 'function') {
+              e.preventDefault();
+              e.stopPropagation();
+              
+              // Resolve the URL - href is already the proxied URL, so decode it first
+              let resolvedUrl;
+              try {
+                // Try to decode the proxied href
+                const decodedHref = decodeProxyUrl(href, true);
+                if (decodedHref) {
+                  resolvedUrl = decodedHref;
+                } else if (currentUrl) {
+                  // If decoding fails, try to resolve against current URL
+                  const hrefAttr = target.getAttribute('href');
+                  resolvedUrl = new URL(hrefAttr, currentUrl).toString();
+                } else {
+                  resolvedUrl = href;
+                }
+              } catch (err) {
+                resolvedUrl = href;
+              }
+              
+              console.log("UV: Intercepted target=_blank link click, opening in new tab:", resolvedUrl);
+              window.openUrlInNewTab(resolvedUrl);
+              return false;
+            }
+          }
+        }
+      }, true);
+    }
+    
+    console.log("UV: Window.open interception set up for Ultraviolet iframe");
+  } catch (e) {
+    console.log("UV: Error setting up window.open interception:", e);
+  }
 }
 
 // Main function to load a URL through the proxy using Scramjet
@@ -805,12 +1326,42 @@ function setupAdBlocker() {
   }
 }
 
-// Window.open injection - redirect new windows to main iframe
+// Window.open injection - redirect new windows/tabs to the site's tab system
 function setupWindowOpenInjection() {
   const originalOpen = window.open;
 
   window.open = function (url, target, features) {
-    // If we have a current frame and this is a new window/tab request
+    // Handle about:blank or empty URL - create a new home tab
+    if (!url || url === 'about:blank') {
+      console.log("Intercepted window.open for empty/about:blank, opening new home tab");
+      if (typeof window.openUrlInNewTab === 'function') {
+        window.openUrlInNewTab('');
+        return null;
+      }
+    }
+    
+    // If we have the tab system available, open in a new tab
+    if (typeof window.openUrlInNewTab === 'function' && url) {
+      // Resolve relative URLs
+      let resolvedUrl;
+      try {
+        // Try to resolve against the current proxied URL if available
+        if (currentFrame && currentFrame.url) {
+          resolvedUrl = new URL(url, currentFrame.url.toString()).toString();
+        } else {
+          resolvedUrl = new URL(url, location.href).toString();
+        }
+      } catch (e) {
+        resolvedUrl = url;
+      }
+
+      // Open in a new tab within the site's tab system
+      console.log("Intercepted window.open, opening in new tab:", resolvedUrl);
+      window.openUrlInNewTab(resolvedUrl);
+      return null;
+    }
+    
+    // If we have a current frame but no tab system, navigate the current frame (legacy behavior)
     if (currentFrame && url) {
       // Resolve relative URLs
       let resolvedUrl;
