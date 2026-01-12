@@ -1212,7 +1212,7 @@ const VERIFICATION_COOKIES = [
   "_cfuvid",           // Cloudflare unique visitor ID
   // hCaptcha related
   "hc_accessibility",
-  // reCAPTCHA related  
+  // reCAPTCHA related
   "_GRECAPTCHA",
   // Turnstile related
   "cf_turnstile_"
@@ -1278,15 +1278,14 @@ function setupBrowserVerification() {
   // Ensure plugins array looks normal (some verification checks this)
   try {
     if (navigator.plugins.length === 0) {
-      // Create a mock plugins array to appear more like a real browser
+      // Create a generic mock plugins array to appear more like a real browser
+      // Uses generic PDF viewer plugin which is common across browsers
       const mockPlugins = {
-        length: 3,
+        length: 1,
         item: (index) => mockPlugins[index],
         namedItem: (name) => mockPlugins[0],
         refresh: () => {},
-        0: { name: "Chrome PDF Plugin", filename: "internal-pdf-viewer", description: "Portable Document Format" },
-        1: { name: "Chrome PDF Viewer", filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai", description: "" },
-        2: { name: "Native Client", filename: "internal-nacl-plugin", description: "" }
+        0: { name: "PDF Viewer", filename: "internal-pdf-viewer", description: "Portable Document Format" }
       };
       Object.defineProperty(navigator, "plugins", {
         get: () => mockPlugins,
@@ -1359,14 +1358,17 @@ function setupCloudflareSupport() {
     try {
       const response = await originalFetch.apply(this, args);
       
-      // Check for Cloudflare challenge response
+      // Check for Cloudflare challenge response using CF-specific headers
       const cfRay = response.headers.get("cf-ray");
       const cfChallenge = response.headers.get("cf-mitigated");
       
-      if (cfChallenge === "challenge" || response.status === 403 || response.status === 503) {
-        // This might be a Cloudflare challenge, let it proceed normally
+      // Only log if this is actually a Cloudflare response (has CF-Ray header)
+      // and is a challenge response (cf-mitigated header or specific status with cf-ray)
+      if (cfRay && (cfChallenge === "challenge" || 
+          ((response.status === 403 || response.status === 503) && cfChallenge))) {
+        // This is a Cloudflare challenge, let it proceed normally
         // The challenge page will handle verification
-        console.log("Nova: Cloudflare challenge response detected");
+        console.log("Nova: Cloudflare challenge response detected (CF-Ray:", cfRay, ")");
       }
       
       return response;
@@ -1416,8 +1418,23 @@ function handleCloudflareChallenge(element) {
 
 // Enhanced cookie handler for verification in iframes
 function setupVerificationCookieHandler(iframe) {
+  // Check if we can access the iframe (same-origin check)
   try {
-    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    // This will throw if cross-origin
+    const iframeWindow = iframe.contentWindow;
+    if (!iframeWindow) return;
+    
+    // Additional same-origin check before accessing document
+    // Accessing location.href will throw for cross-origin iframes
+    try {
+      // eslint-disable-next-line no-unused-expressions
+      iframeWindow.location.href;
+    } catch (crossOriginError) {
+      // Cross-origin iframe, skip cookie handler setup
+      return;
+    }
+    
+    const iframeDoc = iframe.contentDocument || iframeWindow.document;
     if (!iframeDoc) return;
     
     // Override document.cookie in the iframe to handle verification cookies
@@ -1440,7 +1457,7 @@ function setupVerificationCookieHandler(iframe) {
       });
     }
   } catch (e) {
-    // Cross-origin iframe, cannot access
+    // Cross-origin iframe or other access error, cannot access
   }
 }
 
