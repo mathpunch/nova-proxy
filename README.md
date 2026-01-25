@@ -1,11 +1,11 @@
 # Nova Framework
 
-A basic, web proxy useing Scramjet and Ultravilot prioratizeing stability, embedability, utility, and functionality.
+A sophisticated web proxy useing Scramjet and Ultravilot prioratizeing stability, embedability, utility, and functionality.
 
 ## Deploy
 
 > [!IMPORTANT]
-> Nova Sadley cannot run on static hosting sites
+> Nova Sadley cannot run on static hosting sites like Github Pages, and Vercel
 
 ## Setup
 
@@ -30,6 +30,7 @@ npm dev
 - Scramjet (experamental web proxy)
 - Ultravilot (legacy web proxy)
 - Epoxy (wss and ws transport)
+- Libcurl (wss and ws transport)
 - Fastify (http server)
 
 ## Site Support
