@@ -1,16 +1,11 @@
-const serverless = require('serverless-http');
-const { createServer } = require('http');
-const { App } = require('../../src/index'); // Adjust this path if your main entry is elsewhere
+import awsLambdaFastify from '@fastify/aws-lambda';
+import { App } from '../../src/server.js'; // Ensure your server.js exports the Fastify instance
 
-// We initialize the app logic from the repo
-const app = new App();
+// We import the app logic. 
+// Note: You may need to modify your src/server.js to export 'app' 
+// instead of just calling app.listen()
+const proxy = awsLambdaFastify(App);
 
-// Netlify Functions require a 'handler' exported via serverless-http
-const handler = serverless(createServer((req, res) => {
-  app.serve(req, res);
-}));
-
-module.exports.handler = async (event, context) => {
-  // This ensures the function handles the request correctly
-  return await handler(event, context);
+export const handler = async (event, context) => {
+  return proxy(event, context);
 };
